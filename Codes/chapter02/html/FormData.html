@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+</head>
+<body>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <script>
+        // FormData 객체 생성
+        const formData = new FormData();
+        
+        // key - value 형식의 데이터 저장
+        formData.append("name", "yushin");
+        formData.append("item", "orange");
+        formData.append("item", "melon");   // key 하나에 여러 개의 value 저장 가능
+
+        formData.has("item");
+        formData.has("money");
+        
+        formData.get("item");       // 첫 번째 value
+        formData.getAll("item");    // 모든 value의 리스트
+
+        formData.append("test", ["hi", "zero"]);    // 배열 객체 자체가 value
+        formData.get("test");                       // 배열 객체 자체를 가져오게 된다.
+        formData.delete("test");
+        formData.get("test");
+
+        formData.set("item", "apple");      // 덮어 쓰기
+        formData.getAll("item");
+
+        (async () => {
+            try {
+                const formData = new FormData();
+                formData.append("name", "yushin");
+                formData.append("birth", 1994);
+                const result = await axios.post("https://www.zerocho.com/api/post/formdata", formData);
+
+                console.log(result);
+                console.log(result.data);
+            } catch (error) {
+                console.error(error);
+            }
+        })();
+    </script>
+</body>
+</html>
