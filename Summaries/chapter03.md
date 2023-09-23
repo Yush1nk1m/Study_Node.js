@@ -350,10 +350,10 @@ checkNumber(10): MJS 짝수입니다.
 checkStringOddOrEven("Hello"): MJS 홀수입니다.
 ```
 
-바뀐 문법은 다음과 같다.<br>
-`require` -> `import`<br>
-`exports` -> `export`<br>
-`module.exports` -> `export default`
+바뀐 문법은 다음과 같다.
+- `require` -> `import`
+- `exports` -> `export`
+- `module.exports` -> `export default`
 
 ES 모듈 문법은 CommonJS 모듈처럼 함수나 객체가 아니라 문법 그 자체이다. 파일도 **js** 대신 **mjs** 확장자로 사용해야 하며, 생략 표현이 불가능하기 때문에 주의해야 한다.
 
@@ -483,7 +483,6 @@ ReferenceError: __filename is not defined in ES module scope
 
 Node.js v18.17.1
 ```
-
 - - -
 
 
@@ -496,4 +495,330 @@ Node.js v18.17.1
 
 `global` 객체는 브라우저의 `window` 객체와 대응되는 전역 객체이며, 모든 파일에서 접근할 수 있다. `window.open()` 메소드를 그냥 `open()`으로 호출할 수 있는 것처럼 `global`도 생략할 수 있다. `require()` 함수도 `global.require()`이 생략된 것이다. `console` 객체도 원래는 `global.console()`이다.
 
-`global` 객체 내부에는 많은 속성들이 들어 있고, 내부를 보려면 REPL을 이용해야 한다.
+`global` 객체 내부에는 수십 가지의 속성들이 들어 있고, 내부를 보려면 REPL을 이용해야 한다. 속성 모두를 알 필요는 없고 자주 사용되는 속성들만 알아보도록 한다.
+
+다음은 전역 객체를 이용해 파일 간에 간단한 데이터를 공유하는 코드를 살펴보겠다.
+
+**globalA.js**
+```
+module.exports = () => global.message;
+```
+
+**globalB.js**
+```
+const A = require('./globalA');
+
+global.message = "안녕하세요";
+console.log(A());
+```
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\js> node globalB
+안녕하세요
+```
+
+globalA와 globalB는 `global.message`를 이용해 데이터를 교환하고 있다. 이처럼 간단한 프로그램에선 전역 객체의 속성에 값을 대입해 파일 간에 데이터를 공유할 수 있지만, 프로그램의 규모가 커지면 어떤 파일에서 전역 객체의 값을 변경하고 있는지 알기 어렵게 되어 유지 보수가 어려워지므로 전역 객체 사용에 주의해야 한다. 이럴 시엔 전역 객체보단 모듈을 사용하는 것이 바람직하다.
+
+
+### 3.4.2 console
+
+`console`도 노드에서는 `window` 대신 `global` 객체에 포함되어 있다.
+
+`console` 객체는 보통 로깅을 통한 디버깅에 사용된다. 변수 값 출력, 에러 출력, 시간대 출력 등의 기능을 지원한다. 이 절에서는 `console.log` 외의 다른 로깅 함수들을 알아본다.
+
+**console.js**
+```
+const string = "abc";
+const number = 1;
+const boolean = true;
+const obj = {
+    outside: {
+        inside: {
+            key: "value",
+        },
+    },
+};
+
+console.time("전체 시간");
+console.log("console.log: 평범한 로그입니다. 쉼표로 구분해 값을 여러 개 출력할 수 있습니다.");
+console.log(string, number, boolean);
+console.error("에러 메시지는 console.error로 출력합니다.");
+
+console.table([{ name: "유신", birth: 2001 }, { name: "연우", birth: 2002 }]);
+
+console.dir(obj, { colors: false, depth: 2 });
+console.dir(obj, { colors: true, depth: 1 });
+
+console.time("시간 측정");
+for (let i = 0; i < 100000; i++) {}
+console.timeEnd("시간 측정");
+
+function b() {
+    console.trace("에러 위치 추적");
+}
+
+function a() {
+    b();
+}
+
+a();
+
+console.timeEnd("전체 시간");
+```
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\js> node console
+console.log: 평범한 로그입니다. 쉼표로 구분해 값을 여러 개 출력할 수 있습니다.
+abc 1 true
+에러 메시지는 console.error로 출력합니다.
+┌─────────┬────────┬───────┐
+│ (index) │  name  │ birth │
+├─────────┼────────┼───────┤
+│    0    │ '유신' │ 2001  │
+│    1    │ '연우' │ 2002  │
+└─────────┴────────┴───────┘
+{ outside: { inside: { key: 'value' } } }
+{ outside: { inside: [Object] } }
+시간 측정: 1.958ms
+Trace: 에러 위치 추적
+    at b (D:\공부\Javascript\Study_Node.js\Codes\chapter03\js\console.js:27:13)
+    at a (D:\공부\Javascript\Study_Node.js\Codes\chapter03\js\console.js:31:5)
+    at Object.<anonymous> (D:\공부\Javascript\Study_Node.js\Codes\chapter03\js\console.js:34:1)
+    at Module._compile (node:internal/modules/cjs/loader:1256:14)
+    at Module._extensions..js (node:internal/modules/cjs/loader:1310:10)
+    at Module.load (node:internal/modules/cjs/loader:1119:32)
+    at Module._load (node:internal/modules/cjs/loader:960:12)
+    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:81:12)
+    at node:internal/main/run_main_module:23:47
+전체 시간: 17.511ms
+```
+
+- `console.time(label)`: `console.timeEnd(label)`과 대응되어 같은 레이블을 가진 time과 timeEnd 사이의 시간을 측정한다.
+- `console.log(content)`: 평범한 로그를 콘솔에 표시한다. `console.log(content, content, content, ...)`처럼 여러 내용을 동시에 표시할 수 있다.
+- `console.error(error)`: 에러를 콘솔에 표시한다.
+- `console.table(array)`: 배열의 요소로 객체 리터럴을 넣으면 객체의 속성들이 테이블 형식으로 표현된다.
+- `console.dir(object, option)`: 객체를 콘솔에 표시할 때 사용한다. 첫 번째 인수로 표시할 객체를 넣고, 두 번째 인수로 옵션을 넣는다. 옵션 중 colors를 true로 하면 콘솔에 색이 추가되고 depth의 숫자를 조절하면 객체 안의 객체를 몇 단계까지 보여줄지 결정할 수 있다. depth의 기본값은 2이다.
+- `console.trace(label)`: 에러가 어디서 발생했는지 추적할 수 있게 한다.
+
+
+### 3.4.3 타이머
+
+타이머 기능을 제공하는 함수인 `setTimeout`, `setInterval`, `setImmediate`는 노드에서 `window` 대신 `global` 객체 안에 들어 있다. 특히 `setTimeout`, `setInterval`은 웹 브라우저에서도 사주 사용된다.
+
+- `setTimeout(callback function, millisecond)`: 주어진 밀리초(1,000분의 1초) 이후에 콜백 함수를 실행한다.
+- `setInterval(callback function, millisecond)`: 주어진 밀리초(1,000분의 1초)마다 콜백 함수를 반복 실행한다.
+- `setImmediate(callback function)`: 콜백 함수를 즉시 실행한다.
+
+위의 타이머 함수들은 모두 아이디를 반환하므로, 아이디를 사용해 타이머를 취소할 수 있다.
+
+- `clearTimeout(id)`: `setTimeout`을 취소한다.
+- `clearInterval(id)`: `setInterval`을 취소한다.
+- `clearImmediate(id)`: `setImmediate`를 취소한다.
+
+**timer.js**
+```
+const timeout = setTimeout(() => {
+    console.log("1.5초 후 실행");
+}, 1500);
+
+const interval = setInterval(() => {
+    console.log("1초마다 실행");
+}, 1000);
+
+const timeout2 = setTimeout(() => {
+    console.log("실행되지 않습니다.");
+}, 3000);
+
+setTimeout(() => {
+    clearTimeout(timeout2);
+    clearInterval(interval);
+}, 2500);
+
+const immediate = setImmediate(() => {
+    console.log("즉시 실행");
+});
+
+const immediate2 = setImmediate(() => {
+    console.log("실행되지 않습니다.");
+});
+
+clearImmediate(immediate2);
+```
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\js> node timer
+즉시 실행
+1초마다 실행
+1.5초 후 실행
+1초마다 실행
+```
+
+`setImmediate`는 **즉시 실행**한다고 표현되어 있으나 실제로는 이벤트 루프를 거치는 데 걸리는 시간이 있어 즉시 `clearImmediate`를 호출하면 실행되지 않는다.
+
+`setImmediate(callback)`과 `setTimeout(callback, 0)`의 의미는 동일하지만, 특수한 경우 `setImmediate`가 우선 호출되기도 한다. 헷갈리지 않도록 `setTimeout(callback, 0)`은 사용하지 않는 것이 권장된다.
+
+타이머는 기본적으로 콜백 기반의 API이지만 프로미스 방식을 사용할 수도 있다. 그러나 프로미스 기반 타이머는 **노드 내장 객체**가 아닌 **노드 내장 모듈**이다.
+
+**timerPromise.mjs**
+```
+import { setTimeout, setInterval } from "timers/promises";
+
+await setTimeout(3000);
+console.log("3초 뒤 실행");
+
+for await (const startTime of setInterval(1000, Date.now())) {
+    console.log("1초마다 실행", new Date(startTime));
+}
+```
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\mjs> node timerPromise.mjs
+3초 뒤 실행
+1초마다 실행 2023-09-23T08:17:23.115Z
+1초마다 실행 2023-09-23T08:17:23.115Z
+1초마다 실행 2023-09-23T08:17:23.115Z
+1초마다 실행 2023-09-23T08:17:23.115Z
+1초마다 실행 2023-09-23T08:17:23.115Z
+1초마다 실행 2023-09-23T08:17:23.115Z
+1초마다 실행 2023-09-23T08:17:23.115Z
+...
+```
+
+프로미스 기반이므로 then 대신 await을 사용하기 위해 ES 모듈을 사용했다. **timers/promise**라는 모듈에서 `setTimeout`과 `setInterval`을 새롭게 제공한다. `setTimeout(millisecond)`로 몇 밀리초를 기다릴지 정할 수 있고, `setInterval(millisecond, start value)`은 for await of 문법과 함께 사용할 수 있다. 이때 시작값은 필수가 아니므로 굳이 넣지 않아도 된다.
+
+
+### 3.4.4 process
+
+`process` 객체는 현재 실행되고 있는 노드 프로세스에 대한 정보를 담고 있다.
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\mjs> node
+Welcome to Node.js v18.17.1.
+Type ".help" for more information.
+> process.version
+'v18.17.1'
+> process.arch
+'x64'
+> process.platform
+'win32'
+> process.pid
+6168
+> process.uptime()
+27.4826704
+> process.execPath
+'C:\\Program Files\\nodejs\\node.exe'
+> process.cwd()
+'D:\\공부\\Javascript\\Study_Node.js\\Codes\\chapter03\\mjs'
+> process.cpuUsage()
+{ user: 31000, system: 15000 }
+> process.memoryUsage()
+{
+  rss: 38846464,
+  heapTotal: 8056832,
+  heapUsed: 7112520,
+  external: 1056692,
+  arrayBuffers: 639397
+}
+> .exit
+```
+
+일반적으로 운영체제나 실행 환경별로 다른 동작을 하고 싶을 때 사용한다. `process.env`, `process.nextTick`, `process.exit()`은 중요하므로 별도로 설명한다.
+
+
+#### 3.4.4.1 process.env
+
+REPL에 `process.env`을 입력하면 매우 많은 정보가 출력된다. 이는 시스템 환경 변수로, 노드에 직접 영향을 미치기도 한다. 대표적으로 `UV_THREADPOOL_SIZE`와 `NODE_OPTIONS`가 있다.
+
+시스템 환경 변수 외에도 임의로 환경 변수를 저장할 수 있다. `process.env`는 서비스의 중요한 키를 저장하는 공간으로도 사용된다. 중요한 정보를 코드에 직접 입력하는 것은 위험하기 때문에 환경 변수에 저장하고 `process.env`의 속성을 참조하여 사용하는 것이다.
+
+#### process.nextTick(callback)
+
+이벤트 루프로 하여금 다른 콜백 함수들보다 `nextTick`으로 주어진 콜백 함수를 우선적으로 처리하게끔 만든다.
+
+**nextTick.js**
+```
+setImmediate(() => {
+    console.log("immediate");
+});
+
+process.nextTick(() => {
+    console.log("nextTick");
+});
+
+setTimeout(() => {
+    console.log("timeout");
+}, 0);
+
+Promise.resolve().then(() => console.log("promise"));
+```
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\js> node nextTick
+nextTick
+promise
+timeout
+immediate
+```
+
+`process.nextTick`은 `setImmediate`나 `setTimeout`보다 먼저 실행된다. 코드 맨 밑에 `Promise`를 넣은 것은 `resolve`된 `Promise` 역시 `nextTick`처럼 다른 콜백들보다 우선시되기 때문이다. 그래서 `process.nextTick`과 `Promise`를 **마이크로태스크(microtask)** 라고 구분해서 부른다.
+
+**마이크로태스크**를 재귀 호출하면 이벤트 루프가 다른 콜백 함수들보다 마이크로태스크를 우선해 처리하므로 콜백 함수들이 실행되지 않을 수도 있다. 이 점을 주의해야 한다.
+
+
+#### 3.4.4.3 process.exit(code number)
+
+실행 중인 노드 프로세스를 종료한다. 서버 환경에서 사용 시 서버가 멈추므로 특수한 경우를 제외하고는 서버에서 잘 사용하지 않는다. 그러나 서버 외의 독립적인 프로그램에서는 노드를 멈추게 하기 위해 사용한다.
+
+**exit.js**
+```
+let i = 1;
+setInterval(() => {
+    if (i === 5) {
+        console.log("종료!");
+        process.exit();
+    }
+
+    console.log(i);
+    i++;
+}, 1000);
+```
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\js> node exit
+1
+2
+3
+4
+종료!
+```
+
+`process.exit` 메소드는 인수로 코드 번호를 줄 수 있다. 인수를 주지 않거나 0을 주면 정상 종료, 1을 주면 비정상 종료를 의미한다. 에러가 발생해서 종료하는 경우엔 1을 넣으면 된다.
+
+
+### 3.4.5 기타 내장 객체
+
+`fetch`를 노드에서도 쓸 수 있게 됨에 따라 브라우저에 존재하던 객체들이 노드에서 동일하게 생성되었다. 따라서 브라우저의 코드를 일부 재사용할 수 있게 되었다.
+
+- **URL, URLSearchParams**: 3.5.3절에서 다룬다.
+- **AbortController, FormData, fetch, Headers, Request, Response, Event, EventTarget**: 브라우저에서 사용하던 API가 노드에도 동일하게 생성되었다.
+
+- **TextDecoder**: Buffer를 문자열로 바꾼다.
+- **TextEncoder**: 문자열을 Buffer로 바꾼다.
+- **WebAssembly**: 웹어셈블리 처리를 담당한다.
+- - -
+
+## 3.5 노드 내장 모듈 사용하기
+
+노드는 웹 브라우저에서 사용되는 자바스크립트보다 더 많은 기능을 제공한다. 이 절에서는 버전과 상관없이 안정적이고 유용한 기능을 가지면서도 자주 사용되는 모듈들을 위주로 설명한다.
+
+
+### 3.5.1 os
+
+`os` 모듈은 운영체제의 정보를 가져올 때 사용되는 모듈이다. 내장 모듈인 `os`를 불러오려면 `require("os")` 또는 `require("node:os")`를 입력하면 된다. `os`라는 파일이 따로 존재하는 것은 아니지만 노드가 알아서 내장 모듈임을 파악하고 불러온다.
