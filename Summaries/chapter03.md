@@ -822,3 +822,313 @@ PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\js> node exit
 ### 3.5.1 os
 
 `os` 모듈은 운영체제의 정보를 가져올 때 사용되는 모듈이다. 내장 모듈인 `os`를 불러오려면 `require("os")` 또는 `require("node:os")`를 입력하면 된다. `os`라는 파일이 따로 존재하는 것은 아니지만 노드가 알아서 내장 모듈임을 파악하고 불러온다.
+
+**os.js**
+```
+const os = require('os');
+
+console.log("운영체제 정보 - - -");
+console.log(`os.arch(): ${os.arch()}`);
+console.log(`os.platform(): ${os.platform()}`);
+console.log(`os.type(): ${os.type()}`);
+console.log(`os.uptime(): ${os.uptime()}`);
+console.log(`os.hostname(): ${os.hostname()}`);
+console.log(`os.release(): ${os.release()}`);
+
+console.log(`경로 - - -`);
+console.log(`os.homedir(): ${os.homedir()}`);
+console.log(`os.tmpdir(): ${os.tmpdir()}`);
+
+console.log("CPU 정보 - - -");
+console.log(`os.cpus():`);
+console.log(os.cpus());
+console.log(`os.cpus().length: ${os.cpus().length}`);
+
+console.log("메모리 정보 - - -");
+console.log(`os.freemem(): ${os.freemem()}`);
+console.log(`os.totalmem(): ${os.totalmem()}`);
+```
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\js> node os
+운영체제 정보 - - -
+os.arch(): x64
+os.platform(): win32
+os.type(): Windows_NT
+os.uptime(): 331118.765
+os.hostname(): YUSHIN-GRAM
+os.release(): 10.0.22621
+경로 - - -
+os.homedir(): C:\Users\kys01
+os.tmpdir(): C:\Users\kys01\AppData\Local\Temp
+CPU 정보 - - -
+os.cpus():
+[
+  {
+    model: 'Intel(R) Core(TM) i7-1065G7 CPU @ 1.30GHz',
+    speed: 1498,
+    times: {
+      user: 1446156,
+      nice: 0,
+      sys: 2350312,
+      idle: 42053968,
+      irq: 112828
+    }
+  },
+  {
+    model: 'Intel(R) Core(TM) i7-1065G7 CPU @ 1.30GHz',
+    speed: 1498,
+    times: { user: 711703, nice: 0, sys: 627265, idle: 44511281, irq: 12843 }
+  },
+  {
+    model: 'Intel(R) Core(TM) i7-1065G7 CPU @ 1.30GHz',
+    speed: 1498,
+    times: { user: 1029093, nice: 0, sys: 888296, idle: 43932843, irq: 12718 }
+  },
+  {
+    model: 'Intel(R) Core(TM) i7-1065G7 CPU @ 1.30GHz',
+    speed: 1498,
+    times: { user: 626312, nice: 0, sys: 520390, idle: 44703500, irq: 7171 }
+  },
+  {
+    model: 'Intel(R) Core(TM) i7-1065G7 CPU @ 1.30GHz',
+    speed: 1498,
+    times: { user: 624468, nice: 0, sys: 934687, idle: 44291046, irq: 11812 }
+  },
+  {
+    model: 'Intel(R) Core(TM) i7-1065G7 CPU @ 1.30GHz',
+    speed: 1498,
+    times: { user: 398437, nice: 0, sys: 354500, idle: 45097281, irq: 5515 }
+  },
+  {
+    model: 'Intel(R) Core(TM) i7-1065G7 CPU @ 1.30GHz',
+    speed: 1498,
+    times: { user: 468468, nice: 0, sys: 459562, idle: 44922171, irq: 6984 }
+  },
+  {
+    model: 'Intel(R) Core(TM) i7-1065G7 CPU @ 1.30GHz',
+    speed: 1498,
+    times: { user: 408703, nice: 0, sys: 361765, idle: 45079765, irq: 4359 }
+  }
+]
+os.cpus().length: 8
+메모리 정보 - - -
+os.freemem(): 17308487680
+os.totalmem(): 25465364480
+```
+
+- `os.arch()`: `process.arch`와 동일하다.
+- `os.platform()`: `process.platform`과 동일하다.
+- `os.type()`: 운영체제의 종류를 보여준다.
+- `os.uptime()`: 운영체제 부팅 이후 흐른 시간을 보여준다. `process.uptime()`은 노드의 실행 시간이다.
+- `os.hostname()`: 컴퓨터의 이름을 보여준다.
+- `os.release()`: 운영체제의 버전을 보여준다.
+- `os.homedir()`: 홈 디렉터리 경로를 보여준다.
+- `os.tmpdir()`: 임시 파일 저장 경로를 보여준다.
+- `os.cpus()`: CPU의 코어 정보를 보여준다.
+- `os.freemem()`: 사용 가능한 메모리(RAM)를 보여준다.
+- `os.totalmem()`: 전체 메모리 용량을 보여준다.
+
+`os.cpus().length`로 CPU 코어의 개수를 확인할 수 있다. 그러나 노드에서 싱글 스레드 프로그래밍을 하면 코어가 몇 개이든 상관없이 대부분의 경우 코어를 하나만 사용한다.
+
+예제에는 없지만, `os.constants`라는 객체도 존재한다. 이것은 각종 에러와 신호에 대한 정보를 담고 있으며 에러가 발생했을 때 `EADDRINUSE`, `ECONNRESET` 같은 에러 코드를 함께 보여준다. 이 종류가 매우 방대하기 때문에 예제에 담지 못했다.
+
+
+### 3.5.2 path
+
+`path`는 파일의 경로를 쉽게 조작할 수 있도록 도와주는 모듈이다. 운영체제별로 경로 구분자가 다르기 때문에 `path` 모듈이 필요하다. 경로 구분자는 크게 WINDOW 타입과 POSIX 타입으로 구분된다.
+
+- **WINDOW**: `\`로 파일 경로를 구분한다.
+- **POSIX**: `/`로 파일 경로를 구분한다.
+
+**path.js**
+```
+const path = require("path");
+
+const string = __filename;
+
+console.log(`path.sep: ${path.sep}`);
+console.log(`path.delimeter: ${path.delimiter}`);
+console.log("- - -");
+
+console.log(`path.dirname(): ${path.dirname(string)}`);
+console.log(`path.extname(): ${path.extname(string)}`);
+console.log(`path.basename(): ${path.basename(string)}`);
+console.log(`path.basename - extname: ${path.basename(string, path.extname(string))}`);
+console.log("- - -");
+
+console.log("path.parse():");
+console.log(path.parse(string));
+console.log(`path.format(): ${path.format({
+    dir: "D:/공부/Javascript/Study_Node.js/Codes/chapter03/js",
+    name: "path",
+    ext: ".js",
+})}`);
+console.log(`path.normalize(): ${path.normalize("D://공부\\\\Javascript//Study_Node.js\\\\Codes/chapter03\\js")}`);
+console.log("- - -");
+
+console.log(`path.isAbsolute(C:\\): ${path.isAbsolute("C:\\")}`);
+console.log(`path.isAbsolute(./home): ${path.isAbsolute("./home")}`);
+console.log("- - -");
+
+console.log(`path.relative(): ${path.relative("D:/공부/Javascript/Study_Node.js/Codes/chapter03/js/path.js", "D:/")}`);
+console.log(`path.join(): ${path.join(__dirname, '..', '..', '/users', '.', '/yushin')}`);
+console.log(`path.resolve(): ${path.resolve(__dirname, '..', 'users', '.', '/yushin')}`);
+```
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\js> node path
+path.sep: \
+path.delimeter: ;
+- - -
+path.dirname(): D:\공부\Javascript\Study_Node.js\Codes\chapter03\js
+path.extname(): .js
+path.basename(): path.js
+path.basename - extname: path
+- - -
+path.parse():
+{
+  root: 'D:\\',
+  dir: 'D:\\공부\\Javascript\\Study_Node.js\\Codes\\chapter03\\js',
+  base: 'path.js',
+  ext: '.js',
+  name: 'path'
+}
+path.format(): D:/공부/Javascript/Study_Node.js/Codes/chapter03/js\path.js
+path.normalize(): D:\공부\Javascript\Study_Node.js\Codes\chapter03\js
+- - -
+path.isAbsolute(C:\): true
+path.isAbsolute(./home): false
+- - -
+path.relative(): ..\..\..\..\..\..\..
+path.join(): D:\공부\Javascript\Study_Node.js\Codes\users\yushin
+path.resolve(): D:\yushin
+```
+
+- `path.sep`: 경로의 구분자이다. WINDOW는 `\`, POSIX는 `/`이다.
+- `path.delimeter`: 환경 변수의 구분자이다. `process.env.PATH`를 입력하면 여러 개의 경로가 이 구분자로 구분되어 있다. WINDOW는 세미콜론(`;`)이고, POSIX는 콜론(`:`)이다.
+- `path.dirname(path)`: 파일이 위치한 디렉터리 경로를 보여준다.
+- `path.extname(path)`: 파일의 확장자를 보여준다.
+- `path.basename(path, ext)`: 파일의 이름(확장자 포함)을 표시한다. 파일 이름만 표시하고 싶으면 두 번째 인수로 파일의 확장자를 넣으면 된다.
+- `path.parse(path)`: 파일 경로를 **root**, **dir**, **base**, **ext**, **name**으로 분리한다.
+- `path.format(object)`: `path.parse()`를 통해 얻은 객체를 파일 경로로 합친다.
+- `path.normalize(path)`: `/`나 `\`를 실수로 여러 번 사용했거나 혼용했을 때 정상적인 경로로 반환한다.
+- `path.isAbsolute(path)`: 파일의 경로가 절대경로인지 상대경로인지를 **true**나 **false**로 알려준다.
+- `path.relative(base path, comparison path)`: 경로를 두 개 넣으면 첫 번째 경로에서 두 번째 경로로 가는 방법을 알려준다.
+- `path.join(path, ...)`: 여러 인수를 넣으면 하나의 경로로 합친다. 상대경로인 ..(부모 디렉터리)과 .(현재 위치)도 알아서 처리한다.
+- `path.resolve(path, ...)`: `path.join()`과 비슷하지만 차이가 있다.
+
+**join과 resolve의 차이**
+```
+/ 를 만났을 때 path.resolve는 절대경로로 인식해서 앞의 경로를 무시하고, path.join은 상대경로로 처리한다.
+
+path.join('/a', '/b', '/c');    /* result: /a/b/c/ */
+path.resolve('/a', '/b', '/c'); /* result: /b/c */
+```
+
+
+### 3.5.3 url
+
+`url`은 인터넷 주소를 쉽게 조작하도록 도와주는 모듈이다. url 처리에는 크게 WHATWG 방식과 예전부터 노드에서 사용하던 방식 두 가지가 있다. 그러나 현재는 WHATWG 방식만을 사용하므로 이에 초점을 맞춘다.
+
+**url.js**
+```
+const url = require("url");
+
+const { URL } = url;
+const myURL = new URL("http://www.gilbut.co.kr/book/bookList.aspx?sercate1=001001000#anchor");
+
+console.log("new URL():", myURL);
+console.log("url.format():", url.format(myURL));
+```
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\js> node url
+new URL(): URL {
+  href: 'http://www.gilbut.co.kr/book/bookList.aspx?sercate1=001001000#anchor',
+  origin: 'http://www.gilbut.co.kr',
+  protocol: 'http:',
+  username: '',
+  password: '',
+  host: 'www.gilbut.co.kr',
+  hostname: 'www.gilbut.co.kr',
+  port: '',
+  pathname: '/book/bookList.aspx',
+  search: '?sercate1=001001000',
+  searchParams: URLSearchParams { 'sercate1' => '001001000' },
+  hash: '#anchor'
+}
+url.format(): http://www.gilbut.co.kr/book/bookList.aspx?sercate1=001001000#anchor
+```
+
+`URL`은 노드 내장 객체이기도 해서 굳이 `require`할 필요는 없다. 이 생성자에 주소를 넣어 객체로 만들면 주소가 부분별로 정리되는데, 이 방식이 WHATWG의 url이다. username, password, origin, searchParams 속성이 존재한다.
+
+- `url.format(object)`: 분해되었던 url 객체를 다시 원래 상태로 조립한다.
+
+주소가 `host` 부분 없이 `pathname` 부분만 오는 경우(ex: /book/bookList.apsx), WHATWG 방식은 이러한 주소를 처리할 수 없다. 이럴 경우엔 `new URL("/book/bookList.apsx", "https://www.gilbut.co.kr")`처럼 두 번째 인수로 `host`를 주어야 한다.
+
+`search` 부분(쿼리스트링)은 보통 주소를 통해 데이터를 전달할 때 사용된다. `search`는 물음표(`?`)로 시작하고, 그 뒤에 **key=value** 형식으로 데이터를 전달한다. 여러 키가 있을 경우엔 `&`로 구분한다. `search` 부분을 다루기 위해 `searchParams`라는 특수한 객체가 생성된다.
+
+**http://www.gilbut.co.kr/?page=3&limit=10&category=nodejs&category=javascript**와 같은 주소에서는 **?page=3&limit=10&category=nodejs&category=javascript** 부분이 `search`이다.
+
+다음과 같은 예제를 통해 `searchParams`에 대해 알아본다.
+
+**searchParams.js**
+```
+const myURL = new URL("http://www.gilbut.co.kr/?page=3&limit=10&category=nodejs&category=javascript");
+
+console.log("searchParams:", myURL.searchParams);
+console.log("searchParams.getAll():", myURL.searchParams.getAll("category"));
+console.log("searchParams.get():", myURL.searchParams.get("limit"));
+console.log("searchParams.has():", myURL.searchParams.has("page"));
+
+console.log("searchParams.keys():", myURL.searchParams.keys());
+console.log("searchParams.values():", myURL.searchParams.values());
+
+myURL.searchParams.append("filter", "es3");
+myURL.searchParams.append("filter", "es5");
+console.log(myURL.searchParams.getAll("filter"));
+
+myURL.searchParams.set("filter", "es6");
+console.log(myURL.searchParams.getAll("filter"));
+
+myURL.searchParams.delete("filter");
+console.log(myURL.searchParams.getAll("filter"));
+
+console.log("searchParams.toString():", myURL.searchParams.toString());
+myURL.search = myURL.searchParams.toString();
+```
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\js> node searchParams
+searchParams: URLSearchParams {
+  'page' => '3',
+  'limit' => '10',
+  'category' => 'nodejs',
+  'category' => 'javascript' }
+searchParams.getAll(): [ 'nodejs', 'javascript' ]
+searchParams.get(): 10
+searchParams.has(): true
+searchParams.keys(): URLSearchParams Iterator { 'page', 'limit', 'category', 'category' }
+searchParams.values(): URLSearchParams Iterator { '3', '10', 'nodejs', 'javascript' }
+[ 'es3', 'es5' ]
+[ 'es6' ]
+[]
+searchParams.toString(): page=3&limit=10&category=nodejs&category=javascript
+```
+
+`URL`과 `URLSearchParams` 모두 노드 내장 객체이므로 이번 예제에서는 `require("url")`을 생략하였다. `URL` 생성자를 통해 `myURL`이라는 주소 객체를 만들었다. `myURL` 안에는 `searchParams` 객체가 있으며, 이 객체는 `search` 부분을 조작하는 다양한 메소드를 지원한다. `myURL.searchParams` 대신 `new URLSearchParams(myURL.search)`로도 같은 결과를 얻을 수 있다.
+
+- `getAll(key)`: 키에 해당하는 모든 값을 가져온다.
+- `get(key)`: 키에 해당하는 첫 번째 값만 가져온다.
+- `has(key)`: 해당 키가 존재하는지 검사한다.
+- `keys()`: `searchParams`의 모든 키를 **반복자(iterator)**(ES2015 문법) 객체로 가져온다.
+- `values()`: `searchParams`의 모든 값을 **반복자(iterator)** 객체로 가져온다.
+- `append(key, value)`: 해당 키에 대한 값을 추가한다. 같은 키의 값이 있다면 유지하고 값을 하나 더 추가한다.
+- `set(key, value)`: `append`와 비슷하지만 같은 키의 값들을 모두 지우고 새로 추가한다.
+- `delete(key)`: 해당 키를 제거한다.
+- `toString()`: 조작한 `searchParams` 객체를 다시 문자열로 만든다. 이 문자열을 `search`에 대입하면 `searchParams`의 변경 사항이 주소 객체에 반영된다.
