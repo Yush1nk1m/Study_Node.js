@@ -1132,3 +1132,303 @@ searchParams.toString(): page=3&limit=10&category=nodejs&category=javascript
 - `set(key, value)`: `append`와 비슷하지만 같은 키의 값들을 모두 지우고 새로 추가한다.
 - `delete(key)`: 해당 키를 제거한다.
 - `toString()`: 조작한 `searchParams` 객체를 다시 문자열로 만든다. 이 문자열을 `search`에 대입하면 `searchParams`의 변경 사항이 주소 객체에 반영된다.
+
+
+### 3.5.4 dns
+
+`dns`는 주로 도메인을 통해 IP나 기타 DNS 정보를 얻고자 할 때 사용한다.
+
+**dns.mjs**
+```
+import dns from "dns/promises";
+
+const ip = await dns.lookup("gilbut.co.kr");
+console.log("IP:", ip);
+
+const a = await dns.resolve("gilbut.co.kr", "A");
+console.log("A:", a);
+
+const mx = await dns.resolve("gilbut.co.kr", "MX");
+console.log("MX:", mx);
+
+const cname = await dns.resolve("www.gilbut.co.kr", "CNAME");
+console.log("CNAME:", cname);
+
+const any = await dns.resolve("gilbut.co.kr", "ANY");
+console.log("ANY:", any);
+```
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\mjs> node dns.mjs
+IP: { address: '49.236.151.220', family: 4 }
+A: [ '49.236.151.220' ]
+MX: [
+  { exchange: 'alt2.aspmx.l.google.com', priority: 5 },
+  { exchange: 'aspmx2.googlemail.com', priority: 10 },
+  { exchange: 'aspmx.l.google.com', priority: 1 },
+  { exchange: 'alt1.aspmx.l.google.com', priority: 5 },
+  { exchange: 'aspmx3.googlemail.com', priority: 10 }
+]
+CNAME: [ 'slb-1088813.ncloudslb.com' ]
+ANY: [
+  { value: 'ns1-2.ns-ncloud.com', type: 'NS' },
+  { value: 'ns1-1.ns-ncloud.com', type: 'NS' },
+  {
+    nsname: 'ns1-1.ns-ncloud.com',
+    hostmaster: 'ns1-2.ns-ncloud.com',
+    serial: 67,
+    refresh: 21600,
+    retry: 1800,
+    expire: 1209600,
+    minttl: 300,
+    type: 'SOA'
+  }
+]
+```
+
+ip 주소는 간단하게 `dns.lookup`이나 `dns.resolve(domain)`으로 얻을 수 있다. A(ipv4 주소), AAAA(ipv6 주소), NS(네임서버), SOA(도메인 정보), CNAME(별칭, 주로 www가 붙은 주소는 별칭인 경우가 많다), MX(메일 서버) 등은 **레코드**라고 부른다. 레코드에 대한 정보는 `dns.resolve(domain, record)`로 조회할 수 있다.
+
+
+### 3.5.5 crypto
+
+`crypto`는 암호화를 도와주는 모듈이다. 몇 가지 메소드는 실제 서비스에도 적용할 수 있어 유용하다. 고객의 비밀번호와 같이 중요한 정보에 대한 안전 장치를 이중으로 만들 때 쓰인다.
+
+#### 3.5.5.1 단방향 암호화
+
+**단방향 암호화**는 복호화할 수 없는 암호화 방식을 뜻한다. 비밀번호는 보통 단방향 암호화를 통해 암호화되는데 복호화할 수 없으므로 암호화라고 표현하는 대신 **해시 함수**라고 부르기도 한다. 비밀번호의 경우 고객이 입력한 값을 해시 함수에 통과시킨 것이 데이터베이스에 저장되어 있는 암호화된 값과 같은지만 비교하면 되므로 별도의 복호화 과정이 필요하지 않다. 단방향 암호화는 이처럼 복호화가 굳이 필요하지 않은 상황에 사용된다.
+
+단방향 암호화 알고리즘은 주로 **해시 기법**을 사용한다. 해시 기법이란 어떤 문자열을 **고정된 길이**의 다른 문자열로 바꿔버리는 방식이다. 즉, 입력 문자열의 길이가 abc, abcd, abcde, ... 등으로 다르더라도 그 출력 문자열의 길이는 고정되어 있다.
+
+**hash.js**
+```
+const crypto = require("crypto");
+
+console.log("base64:", crypto.createHash("sha512").update("비밀번호").digest("base64"));
+console.log("hex:", crypto.createHash("sha512").update("비밀번호").digest("hex"));
+console.log("base64:", crypto.createHash("sha512").update("또 다른 비밀번호").digest("base64"));
+```
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\js> node hash
+base64: dvfV6nyLRRt3NxKSlTHOkkEGgqW2HRtfu19Ou/psUXvwlebbXCboxIPmDYOFRIpqav2eUTBFuHaZri5x+usy1g==
+hex: 76f7d5ea7c8b451b773712929531ce92410682a5b61d1b5fbb5f4ebbfa6c517bf095e6db5c26e8c483e60d8385448a6a6afd9e513045b87699ae2e71faeb32d6
+base64: PlvUgVU0++e6OYLQsSyCwkjCy+yO6Gp0hNA27ohTxJVmoFpKvVLL/SYAR0KNurCUvTtGwfbctoJtCvrrufykgg==
+```
+
+- `createHash(algorithm)`: 사용할 해시 알고리즘을 넣는다. **md5, sha1, sha256, sha512** 등이 가능하지만, **md5**와 **sha1**은 이미 취약점이 발견되었다. 현재는 **sha512** 정도로 충분하지만 나중에 **sha512**마저도 취약해지면 더 강화된 알고리즘을 사용해야 한다.
+- `update(string)`: 암호화할 문자열을 넣는다.
+- `digest(encoding)`: 인코딩 알고리즘을 넣는다. **base64, hex, latin1**이 주로 사용되는데, **base64**가 결과 문자열이 가장 짧기 때문에 애용된다. 암호화된 문자열을 반환한다.
+
+가끔 두 문자열이 똑같은 해시 값으로 변환되는 경우가 있다. 이런 상황을 **충돌**이 발생했다고 표현한다. 해킹용 컴퓨터의 역할은 어떤 문자열이 서로 충돌하는지 밝혀내는 것이다. 보안이 취약해진 알고리즘들은 해킹용 컴퓨터가 충돌 가능성을 밝혀낸 것들이며, 현재는 **sha512**가 안전하다고 평가받고 있지만 나중에 보안이 취약해질 경우엔 **sha3**으로 대체할 수 있다.
+
+현재는 주로 **pbkdf2, bcrypt, scrypt**라는 알고리즘으로 비밀번호를 암호화하고 있다. 그중 노드에서는 **pbkdf2**를 지원하는데, 이는 간단히 말해 기존 문자열에 **salt**라고 불리는 문자열을 붙인 후 해시 알고리즘을 반복해서 적용하는 것이다.
+
+**pbkdf2.js**
+```
+const crypto = require("crypto");
+
+crypto.randomBytes(64, (err, buf) => {
+    const salt = buf.toString("base64");
+    console.log("salt:", salt);
+
+    crypto.pbkdf2("비밀번호", salt, 100000, 64, "sha512", (err, key) => {
+        console.log("password:", key.toString("base64"));
+    });
+});
+```
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\js> node pbkdf2.js
+salt: BT/9uXY1T33lAsPFLQLrOoKOVurdgDIaMY9ZUTH9k+/x1PDw/w0XBRsJ4b+LdhjnOJjFdVsqz8WVlWNIXEW7mQ==
+password: +DuVJFvLOyC0JNEqWNApuxqJbx9DFPkt8nFPa4X//TRjTpgOTn6Pa5swOM+cqEky01e1ncxOZXS6WxFklIRZtg==
+```
+
+**pbkdf2** 알고리즘의 구체적인 작동 과정은 다음과 같다.
+
+1. `randomBytes()` 메소드로 64바이트 길이의 문자열을 만든다. 이것이 `salt`가 된다.
+2. `pbkdf2()` 메소드에는 순서대로 **비밀번호, salt, 반복 횟수, 출력 바이트 길이, 해시 알고리즘**을 인수로 넣는다.
+
+예시에서는 10만 회 반복하게 설정하였는데, 즉 **sha512** 알고리즘을 10만 회 반복 적용하여 결과를 내는 것이다. 이 작업은 1초 정도가 소요되는데 `crypto.randomBytes`와 `crypto.pbkdf2` 메소드는 내부적으로 스레드 풀을 사용해 멀티 스레딩으로 동작하기 때문에 논블로킹 방식으로 동작한다.
+
+`pbkdf2` 방식은 간단하지만 `bcrypt`나 `scrypt`보다 취약하므로 더 나은 보안이 필요한 경우엔 다른 둘을 사용할 수 있다.
+
+
+#### 3.5.5.2 양방향 암호화
+
+**양방향 대칭형 암호화**는 암호화된 문자열을 복호화할 수 있으며, 키(열쇠)라는 것이 사용된다. 대칭형 암호화에서는 암호화와 복호화 시 같은 키를 사용해야 한다.
+
+**cipher.js**
+```
+const crypto = require("crypto");
+
+const algorithm = "aes-256-cbc";
+const key = "abcdefghijklmnopqrstuvwxyz123456";
+const iv = "1234567890123456";
+
+const cipher = crypto.createCipheriv(algorithm, key, iv);
+let result = cipher.update("암호화할 문장", "utf8", "base64");
+result += cipher.final("base64");
+console.log("암호화:", result);
+
+const decipher = crypto.createDecipheriv(algorithm, key, iv);
+let result2 = decipher.update(result, "base64", "utf8");
+result2 += decipher.final("utf8");
+console.log("복호화:", result2);
+```
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\js> node cipher
+암호화: iiopeG2GsYlk6ccoBoFvEH2EBDMWv1kK9bNuDjYxiN0=
+복호화: 암호화할 문장
+```
+
+- `crypto.createCipheriv(algorithm, key, iv)`: 암호화 알고리즘과 키, 초기화 벡터를 넣는다. 암호화 알고리즘은 **aes-256-cbc**를 사용했지만 다른 알고리즘을 사용할 수 있다. **aes-256-cbc** 알고리즘의 경우 키는 32바이트여야 하고, 초기화 벡터는 16바이트여야 한다. 초기화 벡터는 어떤 평문이 암호화 시 매번 동일한 결과를 산출하는 것을 방지하기 위해 임의로 생성되어 암호화에 사용된다. 사용 가능한 알고리즘 목록은 `crypto.getCiphers()`를 호출하여 확인할 수 있다.
+- `cipher.update(string, input encoding, output encoding)`: 암호화할 대상과 그 대상의 인코딩 방식, 암호화된 데이터의 인코딩 방식을 인수로 전달한다. 보통 문자열은 utf8 인코딩을, 암호는 base64 인코딩을 많이 사용한다.
+- `cipher.final(output encoding)`: 암호화 결과물의 인코딩을 넣으면 암호화가 완료된다.
+- `crypto.createDecipheriv(algorithm, key, iv)`: 복호화할 때 사용한다. 암호화할 때 사용했던 인수들을 똑같이 넣어야 한다.
+- `decipher.update(string, input encoding, output encoding)`: 암호화된 문장, 그 문장의 인코딩 방식, 복호화할 데이터의 인코딩 방식을 인수로 전달한다. `createCipheriv`의 `update()`에서 **utf8, base64** 순으로 넣었다면 `createDecipheriv`의 `update()`에서는 **base64, utf8** 순으로 넣으면 된다.
+- `decipher.final(output encoding)`: 복호화 결과물의 인코딩을 넣으면 복호화가 완료된다.
+
+지금까지 알아본 방식 외에도 `crypto` 모듈은 **양방향 비대칭형 암호화, HMAC** 등의 다양한 암호화 방식을 제공하고 있다.
+
+
+### 3.5.6 util
+
+`util`은 각종 편의 기능을 모아둔 모듈이다. 계속해서 API가 추가되고 있다.
+
+**util.js**
+```
+const util = require("util");
+const crypto = require("crypto");
+
+const dontUseMe = util.deprecate((x, y) => {
+    console.log(x + y);
+}, "dontUseMe 함수는 deprecated 되었으니 더 이상 사용하지 마세요.");
+
+dontUseMe(1, 2);
+
+const randomBytesPromise = util.promisify(crypto.randomBytes);
+randomBytesPromise(64)
+    .then((buf) => {
+        console.log(buf.toString("base64"));
+    })
+    .catch((error) => {
+        console.error(error);
+    });
+```
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\js> node util
+3
+(node:14748) DeprecationWarning: dontUseMe 함수는 deprecated 되었으니 더 이상 사용하지 마세요.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+N90DzUtNKGI31j1gOjGAgPAfkT+5T0Fa5p6D7GPolqo82Kr9B5xJvn7f//rD2nJpFOQV2ywS3vtBk4UY8tvNLQ==
+```
+
+- `util.deprecate`: 함수가 deprecated 처리되었음을 알린다. 첫 번째 인수로 전달한 함수를 사용하면 경고 메시지가 출력된다. 두 번째 인수로는 경고 메시지의 내용을 전달한다. 함수가 조만간 사라지거나 변경될 예정일 때 이를 알릴 수 있어 유용하다.
+- `util.promisify`: 콜백 패턴을 프로미스 패턴으로 바꾼다. 바꿀 함수를 인수로 전달하면 된다. 이렇게 바뀐 함수는 async/await 패턴까지 적용할 수 있다. 반대로 프로미스를 콜백으로 바꾸는 `util.callbackify`도 존재한다.
+
+
+### 3.5.7 worker_threads
+
+`worker_threads` 모듈을 사용하면 노드에서 멀티 스레드 방식으로 작업을 진행할 수 있다.
+
+먼저 간단한 예제를 살펴본다.
+
+**worker_threads.js**
+```
+const {
+    Worker, isMainThread, parentPort,
+} = require("worker_threads");
+
+if (isMainThread) {     // 메인 스레드인 경우
+    const worker = new Worker(__filename);
+    worker.on("message", message => console.log("from worker:", message));
+    worker.on("exit", () => console.log("worker exit"));
+    worker.postMessage("ping");
+} else {                // 워커 스레드인 경우
+    parentPort.on("message", (value) => {
+        console.log("from parent:", value);
+        parentPort.postMessage("pong");
+        parentPort.close();
+    });
+}
+```
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\js> node worker_threads
+from parent: ping
+from worker: pong
+worker exit
+```
+
+`isMainThread`를 통해 현재 코드가 메인 스레드(기존에 동작하던 싱글 스레드)에서 실행되는지, 아니면 사용자가 생성한 워커 스레드에서 실행되는지 구분할 수 있다. 메인 스레드에서는 `new Worker`를 통해 현재 파일(__filename)을 워커 스레드에서 실행한다. 워커 스레드의 `isMainThread` 값은 false이므로 현재 코드에서 else 부분만 실행된다.
+
+메인 스레드에서는 워커 스레드 생성 후 `worker.postMessage`로 워커 스레드에 데이터를 보낼 수 있다. 워커 스레드는 `parentPort.on("message")` 이벤트 리스너로 메인 스레드로부터 메시지를 받고, `parentPort.postMessage`로 메인 스레드에게 메시지를 보낸다. 메인 스레드는 `worker.on("message")`로 메시지를 받는다. 이때 메시지를 한 번만 받고 싶으면 `once("message")`를 사용하면 된다.
+
+워커 스레드에서 `on` 메소드를 사용할 때는 직접 워커 스레드를 종료해야 한다는 점을 주의해야 한다. `parentPort.close()`를 사용하면 메인 스레드와의 연결이 종료된다. 종료될 때는 `worker.on("exit")`이 실행된다.
+
+다음으로는 여러 개의 워커 스레드에 데이터를 전송하는 예제를 살펴본다.
+
+**worker_data.js**
+```
+const {
+    Worker, isMainThread, parentPort, workerData,
+} = require("worker_threads");
+
+if (isMainThread) {     // 메인 스레드일 때
+    const threads = new Set();
+    
+    threads.add(new Worker(__filename, {
+        workerData: { start: 1 },
+    }));
+
+    threads.add(new Worker(__filename, {
+        workerData: { start: 2 },
+    }));
+
+    for (let worker of threads) {
+        worker.on("message", message => console.log("from worker:", message));
+        worker.on("exit", () => {
+            threads.delete(worker);
+            
+            if (threads.size === 0) {
+                console.log("job done");
+            }
+        });
+    }
+} else {                // 워커 스레드일 때
+    const data = workerData;
+    parentPort.postMessage(data.start + 100);
+}
+```
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\js> node worker_data
+from worker: 101
+from worker: 102
+job done
+```
+
+`new Worker`를 호출할 때 두 번째 인수의 `workerData` 속성으로 원하는 데이터를 보낼 수 있다. 워커 스레드에서는 `workerData`로 데이터를 전달받는다. 이 예제에서는 두 개의 워커 스레드가 돌아가고 있으며, 부모로부터 숫자를 받아서 100을 더해 돌려준다. 돌려주는 순간 워커 스레드가 종료되어 `worker.on("exit")`이 실행된다. 워커 스레드 두 개가 모두 종료되면 **job done**이 로깅된다.
+
+다음으로는 조금 더 실전적인 예제로, 소수의 개수를 구하는 작업을 워커 스레드를 사용하지 않을 때와 사용할 때로 나누어 구현해 본다.
+
+먼저 워커 스레드를 사용하지 않은 예제는 다음과 같다.
+
+**prime.js**
+```
+
+```
+
+**console**
+```
+
+```
