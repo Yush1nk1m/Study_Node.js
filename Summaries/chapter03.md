@@ -1425,6 +1425,927 @@ job done
 
 **prime.js**
 ```
+const min = 2;
+const max = 10000000;
+const primes = [];
+
+function findPrimes(start, range) {
+    let isPrime = true;
+    const end = start + range;
+
+    for (let i = start; i < end; i++) {
+        for (let j = min; j < Math.sqrt(end); j++) {
+            if (i !== j && i % j === 0) {
+                isPrime = false;
+                break;
+            }
+        }
+
+        if (isPrime) {
+            primes.push(i);
+        }
+
+        isPrime = true;
+    }
+}
+
+console.time("prime");
+findPrimes(min, max);
+console.timeEnd("prime");
+console.log(primes.length);
+```
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\js> node prime
+prime: 4.225s
+664579
+```
+
+다음은 워커 스레드를 사용해 여러 스레드가 문제를 나눠서 풀도록 하는 예제이다.
+
+**prime-worker.js**
+```
+const { Worker, isMainThread, parentPort, workerData } = require("worker_threads");
+
+const min = 2;
+let primes = [];
+
+function findPrimes(start, range) {
+    let isPrime = true;
+    const end = start + range;
+
+    for (let i = start; i < end; i++) {
+        for (let j = min; j < Math.sqrt(end); j++) {
+            if (i !== j && i % j === 0) {
+                isPrime = false;
+                break;
+            }
+        }
+
+        if (isPrime) {
+            primes.push(i);
+        }
+
+        isPrime = true;
+    }
+}
+
+if (isMainThread) {
+    const max = 10000000;
+    const threadCount = 8;
+    const threads = new Set();
+    const range = Math.floor((max - min) / threadCount);
+    let start = min;
+    
+    console.time("prime");
+    for (let i = 0; i < threadCount - 1; i++) {
+        const wStart = start;
+        threads.add(new Worker(__filename, { workerData: { start: wStart, range }}));
+        start += range;
+    }
+    threads.add(new Worker(__filename , { workerData: { start, range: max - start }}));
+
+    for (let worker of threads) {
+        worker.on("error", (err) => {
+            throw err;
+        });
+
+        worker.on("exit", () => {
+            threads.delete(worker);
+            
+            if (threads.size === 0) {
+                console.timeEnd("prime");
+                console.log(primes.length);
+            }
+        });
+
+        worker.on("message", (msg) => {
+            primes = primes.concat(msg);
+        });
+    }
+} else {
+    findPrimes(workerData.start, workerData.range);
+    parentPort.postMessage(primes);
+}
+```
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\js> node prime-worker
+prime: 1.147s
+664579
+```
+
+여덟 개의 스레드가 일을 나누어 처리하도록 하니 실행 시간이 약 4배 정도 단축되었다. 코드가 복잡한 것을 보면 알 수 있듯이, 멀티 스레딩을 할 때는 일을 나누는 것이 가장 어렵다.
+
+
+### 3.5.8 child_process
+
+`child_process`는 노드에서 다른 프로그램을 실행하고 싶거나 명령어를 수행하고 싶을 때 사용하는 모듈이다. 이 모듈을 통해 다른 언어로 작성된 코드를 실행하고 결과를 얻을 수도 있다.
+
+먼저 프롬프트 명령어인 `dir`을 `child_process`를 통해 실행하는 예제이다.
+
+**exec.js**
+```
+const exec = require("child_process").exec;
+
+const process = exec("dir");
+
+process.stdout.on("data", data => {
+    console.log(data.toString());
+});
+
+process.stderr.on("data", (data) => {
+    console.error(data.toString());
+})
+```
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\js> node exec
+ D ����̺��� ����: �� ����
+ ���� �Ϸ� ��ȣ: 74AC-A98F
+
+
+ D:\����\Javascript\Study_Node.js\Codes\chapter03\js ���͸�
+
+2023-09-25  ���� 07:56    <DIR>          .
+2023-09-22  ���� 05:26    <DIR>          ..
+2023-09-25  ���� 02:34               548 cipher.js
+2023-09-23  ���� 04:38               863 console.js
+2023-09-22  ���� 02:43                84 dep-run.js
+2023-09-22  ���� 02:42               137 dep1.js
+2023-09-22  ���� 02:43               137 dep2.js
+2023-09-25  ���� 08:02               236 exec.js
+2023-09-23  ���� 05:40               160 exit.js
+2023-09-22  ���� 05:23                49 filename.js
+2023-09-23  ���� 04:27                38 globalA.js
+2023-09-23  ���� 04:28                89 globalB.js
+2023-09-25  ���� 02:09               322 hash.js
+2023-09-22  ���� 02:04               155 helloWorld.js
+2023-09-23  ���� 05:33               235 nextTick.js
+2023-09-24  ���� 12:48               748 os.js
+2023-09-24  ���� 01:17             1,297 path.js
+2023-09-25  ���� 02:23               304 pbkdf2.js
+2023-09-25  ���� 07:51             1,618 prime-worker.js
+2023-09-25  ���� 07:23               585 prime.js
+2023-09-24  ���� 01:50               960 searchParams.js
+2023-09-22  ���� 02:29               206 this.js
+2023-09-23  ���� 04:54               573 timer.js
+2023-09-24  ���� 01:36               234 url.js
+2023-09-25  ���� 05:14               475 util.js
+2023-09-25  ���� 05:39               809 worker_data.js
+2023-09-25  ���� 05:22               571 worker_threads.js
+              25�� ����              11,433 ����Ʈ
+               2�� ���͸�  200,445,661,184 ����Ʈ ����
+```
+
+`exec`의 첫 번째 인수로 명령어를 전달한다. 결과는 `stdout(표준출력)` 또는 `stderr(표준에러)`에 붙여둔 data 이벤트 리스너에 버퍼 형태로 전달된다. 성공적인 결과는 표준출력에, 실패한 결과는 표준에러에 전달된다.
+
+다음은 파이썬 프로그램을 실행하는 예제 코드이다.
+
+**test.py**
+```
+print("hello world");
+```
+
+**spawn.js**
+```
+const spawn = require("child_process").spawn;
+
+const process = spawn("python", ["../test.py"]);
+
+process.stdout.on("data", (data) => {
+    console.log(data.toString());
+});
+
+process.stderr.on("data", (data) => {
+    console.error(data.toString());
+});
+```
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\js> node spawn
+hello world
+
+```
+
+위 코드는 그저 파이썬 코드의 실행 명령어인 **python ../test.py**를 노드의 `spawn`을 통해 실행한 것뿐이다. `spawn`의 첫 번째 인수로는 명령어를, 두 번째 인수로는 옵션 배열을 전달하면 된다. 결과는 `exec`와 동일하게 `stdout` 또는 `stderr`로 전달된다.
+
+`exec`와 `spawn`를 통해 결과를 받는 과정은 비슷하다. 그러나 `exec`는 셸을 실행해서 명령어를 수행하고, `spawn`은 새로운 프로세스를 생성하여 명령어를 실행한다. `spawn`에서도 세 번째 인수로 `{ shell: true }`를 전달하면 `exec`처럼 셸을 실행해서 명령어를 수행한다. 셸 실행 여부에 따라 수행할 수 있는 명령어에 차이가 있다.
+
+
+### 3.5.9 기타 모듈들
+
+이 서적에서 소개되지 않은 다양한 모듈들의 용례를 간단히 설명한다.
+
+- `async_hooks`: 비동기 코드의 흐름을 추적할 수 있는 실험적인 모듈이다.
+- `dgram`: UDP와 관련된 작업을 할 때 유용하다.
+- `net`: HTTP보다 로우 레벨인 TCP나 IPC 통신을 할 때 유용하다.
+- `perf_hooks`: 성능 측정을 할 때 `console.time`보다 정교하게 측정한다.
+- `querystring`: `URLSearchParams`가 나오기 전에 쿼리스트링을 다루기 위해 사용했던 모듈이다. 요즘은 `URLSearchParams`의 사용이 권장된다.
+- `string_decoder`: 버퍼 데이터를 문자열로 바꾸는 데 사용한다.
+- `tls`: TLS와 SSL에 관련된 작업을 할 때 사용한다.
+- `tty`: 터미널과 관련된 작업을 할 때 사용한다.
+- `v8`: v8 엔진에 직접 접근할 때 사용한다.
+- `vm`: 가상 머신에 직접 접근할 때 사용한다.
+- `wasi`: 웹어셈블리를 실행할 때 사용하는 실험적인 모듈이다.
+- - -
+
+
+## 3.6 파일 시스템 접근하기
+
+`fs` 모듈은 파일 시스템에 접근하는 모듈이다. 파일을 생성, 삭제, 읽기, 쓰기 할 수 있으며, 디렉터리도 생성, 삭제 할 수 있다.
+
+**readme.txt**
+```
+저를 읽어주세요.
+```
+
+**readFile.js**
+```
+const fs = require("fs");
+
+fs.readFile("../readme.txt", (err, data) => {
+    if (err) {
+        throw err;
+    }
+
+    console.log(data);
+    console.log(data.toString());
+});
+```
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\js> node readFile
+<Buffer ec a0 80 eb a5 bc 20 ec 9d bd ec 96 b4 ec a3 bc ec 84 b8 ec 9a 94 2e>
+저를 읽어주세요.
+```
+
+`fs` 모듈을 불러온 뒤 읽을 파일의 경로를 지정한다. 이때, 파일의 경로가 현재 파일 기준이 아니라 node 명령어를 실행하는 **콘솔 기준**이라는 점에 유의해야 한다. 만약, 예제 코드를 실행하는 위치가 **D:/공부**라면, **D:/readme.txt**를 찾을 것이다.
+
+파일을 읽은 후 실행될 콜백 함수도 `readFile`의 두 번째 인수로 함께 전달한다. 이 콜백 함수는 매개변수로 에러 또는 데이터를 전달받는다.
+
+결과를 보면 알 수 있듯이, 기본적으로 `readFile`을 통해 전달받은 데이터 자체는 `버퍼(buffer)`라는 형식을 갖고 있다. 따라서 `toString`을 사용해 문자열로 변환해야 사람이 읽을 수 있다.
+
+`fs`는 기본적으로 **콜백** 형식의 모듈이므로 실무에서 사용하기가 불편하다. 따라서 다음과 같이 **프로미스** 형식으로 바꾸어 주는 작업이 필요하다.
+
+**readFilePromise.js**
+```
+const fs = require("fs").promises;
+
+fs.readFile("../readme.txt")
+    .then((data) => {
+        console.log(data);
+        console.log(data.toString());
+    })
+    .catch((err) => {
+        console.error(err);
+    });
+```
+
+`fs` 모듈에서 `promises` 속성을 불러오면 프로미스 기반의 `fs` 모듈을 사용할 수 있다.
+
+이번에는 파일을 생성하는 예제를 살펴본다.
+
+**writeFile.js**
+```
+const fs = require("fs").promises;
+
+fs.writeFile("../writeme.txt", "글이 입력됩니다.")
+    .then(() => {
+        return fs.readFile("../writeme.txt");
+    })
+    .then((data) => {
+        console.log(data.toString());
+    })
+    .catch((err) => {
+        throw err;
+    })
+```
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\js> node writeFile
+글이 입력됩니다.
+```
+
+`writeFile` 메소드에 생성될 파일의 경로와 내용을 입력한다. 서적의 예제 코드는 콜백 형식을 사용하고 있지만, 임의로 프로미스 형식의 코드를 작성하였다.
+
+
+### 3.6.1 동기 메소드와 비동기 메소드
+
+`setTimeout` 같은 타이머와 `process.nextTick` 외에도 노드는 대부분의 메소드를 **비동기 방식**으로 처리한다. 하지만 몇몇 메소드는 **동기 방식**으로도 사용할 수 있다. 특히 `fs` 모듈이 그러한 메소드를 많이 갖고 있다. 지금부터는 어떤 메소드가 동기 또는 비동기 방식으로 동작하고, 언제 어떤 메소드를 사용하는 것이 적절한지 살펴본다.
+
+먼저 파일 하나를 여러 번 읽는 예제를 살펴본다.
+
+**readme2.txt**
+```
+저를 여러 번 읽어보세요.
+```
+
+**async.js**
+```
+const fs = require("fs").promises;
+
+console.log("시작");
+
+fs.readFile("../readme2.txt")
+    .then((data) => {
+        console.log("1번", data.toString());
+    })
+    .catch((err) => {
+        throw err;
+    });
+
+fs.readFile("../readme2.txt")
+    .then((data) => {
+        console.log("2번", data.toString());
+    })
+    .catch((err) => {
+        throw err;
+    });
+
+fs.readFile("../readme2.txt")
+    .then((data) => {
+        console.log("3번", data.toString());
+    })
+    .catch((err) => {
+        throw err;
+    });
+
+console.log("끝");
+```
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\js> node async
+시작
+끝
+1번 저를 여러 번 읽어보세요.
+2번 저를 여러 번 읽어보세요.
+3번 저를 여러 번 읽어보세요.
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\js> node async
+시작
+끝
+1번 저를 여러 번 읽어보세요.
+3번 저를 여러 번 읽어보세요.
+2번 저를 여러 번 읽어보세요.
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\js> node async
+시작
+끝
+1번 저를 여러 번 읽어보세요.
+2번 저를 여러 번 읽어보세요.
+3번 저를 여러 번 읽어보세요.
+...
+```
+
+반복 실행할 때마다 결과가 달라진다. 출력되는 값들 중 **시작**, **끝**을 제외하고는 순서가 임의적이다. `비동기 메소드`들은 백그라운드에 해당 파일을 읽으라고만 요청하고 다음 작업으로 넘어간다. 따라서 요청만 세 번을 보내고 `console.log("끝")`을 실행하는 것이다. 나중에 읽기가 완료되면 백그라운드가 메인 스레드에 알리고, 메인 스레드는 그때 프로미스의 resolve 동작을 실행한다.
+
+수백 개의 I/O 요청이 들어와도 메인 스레드는 백그라운드에 처리를 위임할 수 있기 때문에 이 방식은 상당히 효율적이다. 백그라운드에서는 위임된 요청들을 거의 동시에 실행한다.
+
+**동기와 비동기, 블로킹과 논블로킹**이라는 네 개의 용어가 노드에서 혼용되고 있는데, 이들은 의미상의 차이가 있다.
+
+- **동기와 비동기**: 백그라운드 작업 완료 확인 여부
+- **블로킹과 논블로킹**: 함수가 바로 return 되는지의 여부
+
+노드에서는 **동기-블로킹** 방식과 **비동기-논블로킹** 방식이 대부분이다. **동기-논블로킹**이나 **비동기-블로킹**은 없다고 봐도 무방하다.
+
+**동기-블로킹** 방식에서는 백그라운드 작업 완료 여부를 계속해서 확인하며, 호출한 함수는 백그라운드 작업이 완료되어야 return 한다. **비동기-논블로킹** 방식에서는 호출한 함수가 바로 return 되어 다음 작업으로 넘어가고, 백그라운드 작업 완료 여부는 신경쓰지 않고 있다가 나중에 백그라운드가 알림을 주어야 처리한다.
+
+만약 요청을 순서대로 처리하고 싶다면 다음과 같은 메소드를 사용할 수도 있다.
+
+**sync.js**
+```
+const fs = require("fs");
+
+console.log("시작");
+
+let data = fs.readFileSync("../readme2.txt");
+console.log("1번", data.toString());
+
+data = fs.readFileSync("../readme2.txt");
+console.log("2번", data.toString());
+
+data = fs.readFileSync("../readme2.txt");
+console.log("3번", data.toString());
+
+console.log("끝");
+```
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\js> node sync
+시작
+1번 저를 여러 번 읽어보세요.
+2번 저를 여러 번 읽어보세요.
+3번 저를 여러 번 읽어보세요.
+끝
+```
+
+동기 방식을 이용할 경우 코드의 모양이 많이 바뀐다. `readFile` 대신 `readFileSync`라는 메소드를 사용하고, 콜백 방식을 사용하는 대신 직접 return 값을 받아온다. 그 값을 다음 줄부터 바로 사용할 수 있다는 것은 요청을 보낸 후 결과를 기다린다는 의미이다.
+
+`readFileSync` 또는 `writeFileSync` 등의 메소드를 사용하면 요청이 수백 개 이상 들어올 때 성능에 문제가 생긴다. `Sync` 메소드를 사용할 때는 이전 작업이 완료되어야 다음 작업을 진행할 수 있기 때문에 메인 스레드의 가동률이 떨어진다. 백그라운드는 원래 `fs` 작업을 동시에 처리할 수도 있는데, `Sync` 메소드를 사용하면 백그라운드도 동시 처리가 불가능하게 된다.
+
+동기 메소드는 위와 같은 단점 때문에 프로그램 실행 시 초기화 용도로만 사용하는 것이 권장된다. 대부분의 경우 비동기 메소드가 훨씬 효율적이다.
+
+다음은 비동기 방식을 사용하면서도 출력의 순서를 보장하는 예제이다.
+
+**asyncOrder.js(콜백 형식)**
+```
+const fs = require("fs");
+
+console.log("시작");
+fs.readFile("../readme2.txt", (err, data) => {
+    if (err) {
+        throw err;
+    }
+
+    console.log("1번", data.toString());
+
+    fs.readFile("../readme2.txt", (err, data) => {
+        if (err) {
+            throw err;
+        }
+
+        console.log("2번", data.toString());
+
+        fs.readFile("../readme2.txt", (err, data) => {
+            if (err) {
+                throw err;
+            }
+
+            console.log("3번", data.toString());
+            console.log("끝");
+        });
+    });
+});
+```
+
+이전 `readFile`의 콜백에 다음 `readFile`을 넣는 방식이다. **콜백 지옥** 현상이 발생하지만 순서가 어긋나진 않는다.
+
+**asyncOrderPromise.js(프로미스 형식)**
+```
+const fs = require("fs").promises;
+
+console.log("시작");
+
+fs.readFile("../readme2.txt")
+    .then((data) => {
+        console.log("1번", data.toString());
+        return fs.readFile("../readme2.txt");
+    })
+    .then((data) => {
+        console.log("2번", data.toString());
+        return fs.readFile("../readme2.txt");
+    })
+    .then((data) => {
+        console.log("3번", data.toString());
+        console.log("끝");
+    })
+    .catch((err) => {
+        console.error(err);
+    });
+```
+
+콜백 지옥은 Promise나 async/await으로 어느 정도 해결할 수 있다.
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\js> node asyncOrder
+시작
+1번 저를 여러 번 읽어보세요.
+2번 저를 여러 번 읽어보세요.
+3번 저를 여러 번 읽어보세요.
+끝
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\js> node asyncOrderPromise
+시작
+1번 저를 여러 번 읽어보세요.
+2번 저를 여러 번 읽어보세요.
+3번 저를 여러 번 읽어보세요.
+끝
+```
+
+
+### 3.6.2 버퍼와 스트림 이해하기
+
+노드는 파일을 읽을 때 메모리에 파일 크기만큼의 공간을 마련해두고 파일 데이터를 메모리에 저장한 뒤 사용자가 조작할 수 있게 한다. 이때 메모리에 저장되는 데이터가 **버퍼**이다.
+
+`Buffer` 클래스를 사용하면 버퍼를 직접 조작할 수 있다. 예시와 함께 살펴본다.
+
+**buffer.js**
+```
+const buffer = Buffer.from("저를 버퍼로 바꿔보세요.");
+
+console.log("from():", buffer);
+console.log("length:", buffer.length);
+console.log("toString():", buffer.toString());
+
+const array = [Buffer.from("띄엄 "), Buffer.from("띄엄 "), Buffer.from("띄어쓰기")];
+const buffer2 = Buffer.concat(array);
+console.log("concat():", buffer2.toString());
+
+const buffer3 = Buffer.alloc(5);
+console.log("alloc():", buffer3);
+```
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\js> node buffer
+from(): <Buffer ec a0 80 eb a5 bc 20 eb b2 84 ed 8d bc eb a1 9c 20 eb b0 94 ea bf 94 eb b3 b4 ec 84 b8 ec 9a 94 2e>
+length: 33
+toString(): 저를 버퍼로 바꿔보세요.
+concat(): 띄엄 띄엄 띄어쓰기
+alloc(): <Buffer 00 00 00 00 00>
+```
+
+`Buffer` 객체는 여러 가지 메소드를 제공한다.
+
+- `from(string)`: 문자열을 버퍼로 바꾼다. `length` 속성은 버퍼의 크기를 바이트 단위로 알려준다.
+- `toString(buffer)`: 버퍼를 다시 문자열로 바꾼다. 이때 **base64**나 **hex**를 인수로 전달하면 해당 인코딩으로도 변환할 수 있다.
+- `concat(array)`: 배열 안에 든 버퍼들을 하나로 합친다.
+- `alloc(byte)`: 빈 버퍼를 생성한다. 바이트 단위로 수를 인수로 넣으면 해당 크기의 버퍼가 생성된다.
+
+`readFile` 방식의 버퍼가 편리하긴 하지만 매번 파일 크기만큼의 버퍼를 생성하기 때문에 문제가 있다. 몇 명이 이용할지 모르는 서버 환경에서는 메모리 사용량을 예측할 수 없고, 파일의 모든 내용이 버퍼에 쓰인 이후에야 다음 동작으로 넘어갈 수 있기 때문에 속도 문제도 존재한다.
+
+그래서 버퍼의 크기를 작게 만들고 데이터를 여러 번에 걸쳐 나눠 보내는 방식이 등장했다. 이를 편리하게 만든 것이 `스트림`이다.
+
+파일을 읽는 스트림 메소드로는 `createReadStream`이 있다. 사용 방법은 다음과 같다.
+
+**readme3.txt**
+```
+저는 조금씩 조금씩 나눠서 전달됩니다. 나눠진 조각을 chunk라고 부릅니다.
+```
+
+**createReadStream.js**
+```
+const fs = require("fs");
+
+const readStream = fs.createReadStream("../readme3.txt", { highWaterMark: 16 });
+const data = [];
+
+readStream.on("data", (chunk) => {
+    data.push(chunk);
+    console.log("data: ", chunk, chunk.length);
+});
+
+readStream.on("end", () => {
+    console.log("end: ", Buffer.concat(data).toString());
+});
+
+readStream.on("error", (err) => {
+    console.error(err);
+});
+```
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\js> node createReadStream
+data:  <Buffer ec a0 80 eb 8a 94 20 ec a1 b0 ea b8 88 ec 94 a9> 16
+data:  <Buffer 20 ec a1 b0 ea b8 88 ec 94 a9 20 eb 82 98 eb 88> 16
+data:  <Buffer a0 ec 84 9c 20 ec a0 84 eb 8b ac eb 90 a9 eb 8b> 16
+data:  <Buffer 88 eb 8b a4 2e 20 eb 82 98 eb 88 a0 ec a7 84 20> 16
+data:  <Buffer ec a1 b0 ea b0 81 ec 9d 84 20 63 68 75 6e 6b eb> 16
+data:  <Buffer 9d bc ea b3 a0 20 eb b6 80 eb a6 85 eb 8b 88 eb> 16
+data:  <Buffer 8b a4 2e> 3
+end:  저는 조금씩 조금씩 나눠서 전달됩니다. 나눠진 조각을 chunk라고 부릅니다.
+```
+
+`createReadStream`으로 읽기 스트림을 만든다. 첫 번째 인수로는 읽을 파일의 경로를 전달한다. 두 번째 인수는 옵션 객체인데, `highWaterMark`라는 옵션이 버퍼의 크기(바이트 단위)를 의미하는 옵션이다. 기본값은 64KB이다.
+
+`readStream`은 이벤트 리스너를 등록해서 사용한다. 보통 `data`, `end`, `error` 이벤트를 사용한다. 위 예제에서의 `readStream.on("data")`와 같이 이벤트 리스너를 등록할 수 있다. 파일 읽기가 시작되면 `data` 이벤트가, 파일 읽기가 끝나면 `end` 이벤트가, 파일을 읽는 도중 에러가 발생하면 `error` 이벤트가 발생한다.
+
+이번에는 스트림을 사용해 파일을 쓰는 코드를 살펴본다.
+
+**createWriteStream.js**
+```
+const fs = require("fs");
+
+const writeStream = fs.createWriteStream("../writeme2.txt");
+
+writeStream.on("finish", () => {
+    console.log("파일 쓰기 완료");
+});
+
+writeStream.write("이 글을 씁니다.\n");
+writeStream.write("한 번 더 씁니다.");
+writeStream.end();
+```
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\js> node createWriteStream
+파일 쓰기 완료
+```
+
+`createWriteStream`으로 쓰기 스트림을 만든다. 첫 번째 인수로는 출력 파일명을 전달하고, 두 번째 인수로는 옵션을 전달할 수 있다.
+
+`finish` 이벤트 리스너를 등록했는데, 이 이벤트는 파일 쓰기 종료 시 발생한다.
+
+`writeStream`에서 제공하는 `write` 메소드로 쓰고자 하는 데이터를 전달한다. 이는 여러 번 호출할 수 있고, 쓰기가 완료되면 `end` 메소드로 종료를 알린다. 이때 `finish` 이벤트가 발생한다.
+
+`createReadStream`으로 파일을 읽고 그 스트림을 전달받아 `createWriteStream`으로 파일을 쓸 수도 있다. 이는 파일 복사와 비슷한 과정으로, 스트림끼리 연결하는 것을 **파이핑**한다고 표현한다. 실제 이러한 작업을 수행하는 메소드가 존재하는데, 그 코드는 다음과 같다.
+
+**readme4.txt**
+```
+저를 writeme3.txt로 보내주세요.
+```
+
+**pipe.js**
+```
+const fs = require("fs");
+
+const readStream = fs.createReadStream("../readme4.txt");
+const writeStream = fs.createWriteStream("../writeme3.txt");
+
+readStream.pipe(writeStream);
+```
+
+**writeme3.txt**
+```
+저를 writeme3.txt로 보내주세요.
+```
+
+미리 읽기 스트림과 쓰기 스트림을 생성한 후 두 개의 스트림을 `pipe` 메소드로 연결하면 저절로 데이터가 `writeStream`으로 넘어간다. 따로 `on("data")` 또는 `writeStream.write`를 사용하지 않아도 알아서 전달되므로 편리하다.
+
+`pipe`는 스트림 사이에 여러 번 연결할 수 있다. 다음 예제는 파일을 읽은 후 gzip 방식으로 압축하는 코드이다.
+
+**gzip.js**
+```
+const zlib = require("zlib");
+const fs = require("fs");
+
+const readStream = fs.createReadStream("../readme4.txt");
+const zlibStream = zlib.createGzip();
+const writeStream = fs.createWriteStream("../readme4.txt.gz");
+
+readStream.pipe(zlibStream).pipe(writeStream);
+```
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\js> node gzip
+```
+
+또는 `stream` 모듈의 `pipeline` 메소드를 사용해 여러 개의 파이프를 연결하는 방법도 있다.
+
+**pipeline.mjs**
+```
+import { pipeline } from "stream/promises";
+import zlib from "zlib";
+import fs from "fs";
+
+await pipeline(
+    fs.createReadStream("../readme4.txt"),
+    zlib.createGzip(),
+    fs.createWriteStream("../readme4.txt.gz"),
+);
+```
+
+`pipeline` 메소드를 사용하면 중간에 `AbortController`를 사용해 원할 때 파이프를 중단할 수 있다.
+
+**pipelineAbort.js**
+```
+import { pipeline } from "stream/promises";
+import zlib from "zlib";
+import fs from "fs";
+
+const ac = new AbortController();
+const signal = ac.signal;
+
+setTimeout(() => ac.abort(), 1);    // 1ms 뒤에 중단
+await pipeline(
+    fs.createReadStream("../readme4.txt"),
+    zlib.createGzip(),
+    fs.createWriteStream("../readme4.txt.gz"),
+    { signal },
+);
+```
+
+`pipeline`의 마지막 인수로 `{ signal }`을 추가하면 된다. 원하는 시점에 `ac.abort()`를 호출하면 파이프가 중단된다.
+
+다음으로 약 500MB 용량의 텍스트 파일을 만들고 `readFile` 메소드와 `createReadStream`의 메모리 사용량 차이를 확인해 보겠다.
+
+**createBigFile.js**
+```
+const fs = require("fs");
+const file = fs.createWriteStream("../big.txt");
+
+for (let i = 0; i < 10000000; i++) {
+    file.write("이 파일은 굉장히 큰 사이즈의 파일입니다.\n");
+}
+file.end();
+```
+
+다음과 같이 `readFile` 메소드를 사용해 big.txt를 big2.txt로 복사한다.
+
+**buffer-memory.js**
+```
+const fs = require("fs");
+
+console.log("before:", process.memoryUsage().rss);
+
+const data1 = fs.readFileSync("../big.txt");
+fs.writeFileSync("../big2.txt", data1);
+
+console.log("buffer:", process.memoryUsage().rss);
+```
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\js> node buffer-memory
+before: 30691328
+buffer: 611442688
+```
+
+메모리 사용량을 보면 파일을 복사하기 위해 메모리에 파일을 전부 올려둔 후 `writeFileSync`를 수행했음을 확인할 수 있다.
+
+이번에는 `stream`을 사용해 파일을 big3.txt로 복사한다.
+
+**stream-memory**
+```
+const fs = require("fs");
+
+console.log("before:", process.memoryUsage().rss);
+
+const readStream = fs.createReadStream("../big.txt");
+const writeStream = fs.createWriteStream("../big3.txt");
+
+readStream.pipe(writeStream);
+readStream.on("end", () => {
+    console.log("stream:", process.memoryUsage().rss);
+});
+```
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\js> node stream-memory
+before: 30695424
+stream: 59412480
+```
+
+`stream`을 사용한 경우, 큰 파일을 조각내어 버퍼 단위로 이동했기 때문에 메모리 사용량이 훨씬 적어졌음을 확인할 수 있다. 이러한 효율성 때문에 동영상 같은 큰 파일들을 전송할 때 스트림을 사용한다.
+
+
+### 3.6.3 기타 fs 메소드 알아보기
+
+`fs`는 파일 읽기/쓰기 이외에도 파일 생성/삭제, 디렉터리 생성/삭제와 같이 파일 시스템을 조작하는 다양한 메소드를 제공한다.
+
+**fsCreate.js**
+```
+const fs = require("fs").promises;
+const constants = require("fs").constants;
+
+fs.access("../folder", constants.F_OK | constants.W_OK | constants.R_OK)
+    .then(() => {
+        return Promise.reject("이미 디렉터리 있음");
+    })
+    .catch((err) => {
+        if (err.code === "ENOENT") {
+            console.log("디렉터리 없음");
+            return fs.mkdir("../folder");
+        }
+
+        return Promise.reject(err);
+    })
+    .then(() => {
+        console.log("디렉터리 만들기 성공");
+        return fs.open("../folder/file.js", "w");
+    })
+    .then((fd) => {
+        console.log("빈 파일 만들기 성공", fd);
+        return fs.rename("../folder/file.js", "../folder/newfile.js");
+    })
+    .then(() => {
+        console.log("이름 바꾸기 성공");
+    })
+    .catch((err) => {
+        console.error(err);
+    });
+```
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\js> node fsCreate
+디렉터리 없음
+디렉터리 만들기 성공
+빈 파일 만들기 성공 FileHandle {
+  _events: [Object: null prototype] {},
+  _eventsCount: 0,
+  _maxListeners: undefined,
+  close: [Function: close],
+  [Symbol(kCapture)]: false,
+  [Symbol(kHandle)]: FileHandle {},
+  [Symbol(kFd)]: 3,
+  [Symbol(kRefs)]: 1,
+  [Symbol(kClosePromise)]: null
+}
+이름 바꾸기 성공
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\js> node fsCreate
+이미 디렉터리 있음
+```
+
+위 코드에서는 다음과 같은 네 가지 **비동기 메소드**가 등장한다.
+
+- `fs.access(path, option, callback)`: 디렉터리나 파일에 접근할 수 있는지 확인한다. 두 번째 인수로 `constants`를 통해 가져온 상수들을 전달했다. `F_OK`는 파일 존재 여부, `R_OK`는 읽기 권한 여부, `W_OK`는 쓰기 권한 여부를 검사한다. 파일/디렉터리가 없거나 권한이 없다면 에러가 발생하는데, 파일/디렉터리가 없을 때의 에러 코드는 `ENOENT`이다.
+- `fs.mkdir(path, callback)`: 디렉터리를 만드는 메소드이다. 이미 디렉터리가 있다면 에러가 발생하므로 먼저 `access` 메소드를 호출하여 확인하는 것이 중요하다.
+- `fs.open(path, option, callback)`: 파일의 아이디(fd 변수)를 가져오는 메소드이다. 파일이 없다면 생성한 뒤 그 아이디를 가져온다. 아이디를 사용해 `fs.read` 또는 `fs.write`로 읽거나 쓸 수 있다. 두 번째 인수로 어떤 동작을 할 것인지 설정할 수 있다. 쓰려면 `w`, 읽으려면 `r`, 기존 파일에 추가하려면 `a`이다.
+- `fs.rename(old path, new path, callback)`: 파일의 이름을 바꾸는 메소드이다.
+
+다음으로는 디렉터리의 내용을 확인하거나 삭제하는 메소드를 살펴본다.
+
+**fsDelete.js**
+```
+const fs = require("fs").promises;
+
+fs.readdir("../folder")
+    .then((dir) => {
+        console.log("디렉터리 내용 확인:", dir);
+        return fs.unlink("../folder/newfile.js");
+    })
+    .then(() => {
+        console.log("파일 삭제 성공");
+        return fs.rmdir("../folder");
+    })
+    .then(() => {
+        console.log("디렉터리 삭제 성공");
+    })
+    .catch((err) => {
+        console.error(err);
+    });
+```
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\js> node fsDelete
+디렉터리 내용 확인: [ 'newfile.js' ]
+파일 삭제 성공
+디렉터리 삭제 성공
+```
+
+- `fs.readdir(path, callback)`: 디렉터리 안의 내용을 확인할 수 있다. 배열 안에 내부의 파일과 디렉터리들의 이름이 저장된다.
+- `fs.unlink(path, callback)`: 파일을 지울 수 있다. 파일이 없다면 에러가 발생하므로 먼저 파일이 있는지를 검사해야 한다.
+- `fs.rmdir(path, callback)`: 디렉터리를 지울 수 있다. 디렉터리 안에 파일들이 있다면 에러가 발생하므로 먼저 디렉터리 내부의 파일들을 모두 지우고 호출해야 한다.
+
+노드 8.5 버전 이후에는 `readFileStream`과 `writeFileStream`을 `pipe`로 연결하지 않아도 파일을 복사할 수 있다. 다음과 같이 코드를 작성하면 된다.
+
+**copyFile.js**
+```
+const fs = require("fs").promises;
+
+fs.copyFile("../readme4.txt", "../writeme4.txt")
+    .then(() => {
+        console.log("복사 완료");
+    })
+    .catch((err) => {
+        console.error(err);
+    });
+```
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\js> node copyFile
+복사 완료
+```
+
+- `fs.copyFile(old file path, new file path, callback)`: 파일을 복사한다.
+
+파일/디렉터리의 변경 사항을 감시할 수 있는 `watch` 메소드도 존재한다. 빈 텍스트 파일 target.txt를 생성하고 다음 코드를 작성한다.
+
+**watch.js**
+```
+const fs = require("fs");
+
+fs.watch("../target.txt", (eventType, filename) => {
+    console.log(eventType, filename);
+});
+```
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\js> node watch
+change target.txt
+change target.txt
+change target.txt
+change target.txt
+change target.txt
+rename target.txt
+```
+
+watch.js를 실행하고 target.txt의 내용을 변경하거나 파일의 이름을 변경하면 터미널에 결과가 출력된다. 내용을 수정할 때는 `change` 이벤트가 발생하고, 파일명을 변경하거나 파일을 삭제하면 `rename` 이벤트가 발생한다. `rename` 이벤트가 발생한 이후엔 `watch`로 변경을 추적할 수 없다. `change` 이벤트가 두 번씩 발생하기도 하므로 실무에서 사용 시 주의해야 한다.
+
+
+### 3.6.4 스레드 풀 알아보기
+
+이전 절에서는 `fs` 모듈의 다양한 비동기 메소드들을 사용해 보았다. 비동기 메소드들은 백그라운드에서 실행되고 실행된 후에는 다시 메인 스레드의 콜백 함수나 프로미스의 then 부분이 실행된다. 이때 `fs` 메소드를 동시에 여러 번 실행해도 백그라운드에서 동시에 처리될 수 있는데, 이는 스레드 풀이 있기 때문이다.
+
+`fs` 외에도 `crypto`, `zlib`, `dns.lookup` 등의 모듈들이 내부적으로 스레드 풀을 사용한다. 이들 중 `crypto.pbkdf2` 메소드로 스레드 풀의 존재를 확인해 본다.
+
+**threadpool.js**
+```
 
 ```
 
