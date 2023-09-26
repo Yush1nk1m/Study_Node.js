@@ -2346,10 +2346,314 @@ watch.js를 실행하고 target.txt의 내용을 변경하거나 파일의 이�
 
 **threadpool.js**
 ```
+const crypto = require("crypto");
 
+const pass = "pass";
+const salt = "salt";
+const start = Date.now();
+
+crypto.pbkdf2(pass, salt, 1000000, 128, "sha512", () => {
+    console.log("1:", Date.now() - start);
+});
+
+crypto.pbkdf2(pass, salt, 1000000, 128, "sha512", () => {
+    console.log("2:", Date.now() - start);
+});
+
+crypto.pbkdf2(pass, salt, 1000000, 128, "sha512", () => {
+    console.log("3:", Date.now() - start);
+});
+
+crypto.pbkdf2(pass, salt, 1000000, 128, "sha512", () => {
+    console.log("4:", Date.now() - start);
+});
+
+crypto.pbkdf2(pass, salt, 1000000, 128, "sha512", () => {
+    console.log("5:", Date.now() - start);
+});
+
+crypto.pbkdf2(pass, salt, 1000000, 128, "sha512", () => {
+    console.log("6:", Date.now() - start);
+});
+
+crypto.pbkdf2(pass, salt, 1000000, 128, "sha512", () => {
+    console.log("7:", Date.now() - start);
+});
+
+crypto.pbkdf2(pass, salt, 1000000, 128, "sha512", () => {
+    console.log("8:", Date.now() - start);
+});
 ```
 
 **console**
 ```
-
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\js> node threadpool
+2: 3090
+4: 3117
+1: 3289
+3: 3320
+5: 6296
+6: 6383
+7: 6564
+8: 6645
 ```
+
+처리되는 순서는 실행될 때마다 달라진다. 스레드 풀이 작업을 동시에 처리하므로 어떤 것이 먼저 처리될지는 알 수 없다. 그러나 스레드 풀이 갖고 있는 스레드는 기본적으로 4개이기 때문에 4개씩 묶어서 처리된다는 패턴이 있다.
+
+스레드 풀을 직접 컨트롤할 수는 없지만, `UV_THREADPOOL_SIZE=개수`를 터미널에 입력하면 스레드 풀의 스레드 개수를 바꿀 수 있다.
+- - -
+
+
+## 3.7 이벤트 이해하기
+
+스트림을 배울 때 `on("data", callback)`, `on("end", callback)`을 사용하였다. 이것은 `on`이라는 메소드를 사용하여 `data`, `end`라는 이벤트가 발생할 때 콜백 함수를 호출하도록 이벤트를 등록한 것이다. `createReadStream`는 내부적으로 알아서 `data`, `end` 이벤트를 호출하지만, 직접 이벤트를 정의할 수도 있다.
+
+다음 예제를 통해 이벤트를 정의하고, 호출하고, 삭제하는 방법을 알아본다.
+
+**event.js**
+```
+const EventEmitter = require("events");
+
+const myEvent = new EventEmitter();
+
+myEvent.addListener("event1", () => {
+    console.log("이벤트 1");
+});
+
+myEvent.on("event2", () => {
+    console.log("이벤트 2");
+});
+
+myEvent.on("event2", () => {
+    console.log("이벤트 2 추가");
+});
+
+myEvent.once("event3", () => {
+    console.log("이벤트 3");
+});     // 한 번만 실행됨
+
+myEvent.emit("event1");     // 이벤트 호출
+myEvent.emit("event2");     // 이벤트 호출
+
+myEvent.emit("event3");
+myEvent.emit("event3");     // 실행 안 됨
+
+myEvent.on("event4", () => {
+    console.log("이벤트 4");
+});
+
+myEvent.removeAllListeners("event4");
+myEvent.emit("event4");     // 실행 안 됨
+
+const listener = () => {
+    console.log("이벤트 5");
+};
+
+myEvent.on("event5", listener);
+myEvent.removeListener("event5", listener);
+myEvent.emit("event5");     // 실행 안 됨
+
+console.log(myEvent.listenerCount("event2"));
+```
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\js> node event
+이벤트 1
+이벤트 2
+이벤트 2 추가
+이벤트 3
+2
+```
+
+`events` 모듈을 사용하면 이벤트를 관리할 수 있다. `myEvent`라는 객체를 생성하면 이벤트 관리를 위한 메소드들을 사용할 수 있다.
+
+- `on(name, callback)`: 이벤트 이름과 이벤트 발생 시 호출될 콜백 함수를 정의한다. 이러한 연결 동작을 리스닝이라고 한다.
+- `addListener(name, callback)`: `on`과 기능이 같다.
+- `emit(name)`: 이벤트를 호출한다. 이벤트 이름을 인수로 넣으면 미리 등록해 두었던 콜백 함수가 실행된다.
+- `once(name, callback)`: 한 번만 실행되는 이벤트를 등록한다.
+- `removeAllListeners(name)`: 인수로 주어진 이벤트에 연결된 모든 이벤트 리스너를 제거한다.
+- `removeListener(name, listener)`: 첫 번째 인수로 주어진 이벤트에 연결된 리스너들 중, 두 번째 인수로 주어진 리스너를 제거한다.
+- `off(name, callback)`: `removeListener`와 기능이 같다.
+- `listenerCount(name)`: 인수로 주어진 이벤트에 현재 리스너가 몇 개 연결되어 있는지 알려준다.
+- - -
+
+
+## 3.8 예외 처리하기
+
+노드는 싱글 스레드 기반이므로 예외 처리가 특히 중요하다. 이 절에서는 노드의 예외 처리 문법에 대해 다룬다.
+
+문법은 매우 간단한데, 에러가 발생할 수 있는 코드 부분을 **try/catch**문으로 감싸면 된다. 다음 예제와 함께 살펴본다.
+
+**error1.js**
+```
+setInterval(() => {
+    console.log("시작");
+
+    try {
+        throw new Error("의도적인 에러 발생!");
+    } catch (err) {
+        console.error(err);
+    }
+}, 1000);
+```
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\js> node error1.js
+시작
+Error: 의도적인 에러 발생!
+    at Timeout._onTimeout (D:\공부\Javascript\Study_Node.js\Codes\chapter03\js\error1.js:5:15)
+    at listOnTimeout (node:internal/timers:569:17)
+    at process.processTimers (node:internal/timers:512:7)
+시작
+Error: 의도적인 에러 발생!
+    at Timeout._onTimeout (D:\공부\Javascript\Study_Node.js\Codes\chapter03\js\error1.js:5:15)
+    at listOnTimeout (node:internal/timers:569:17)
+    at process.processTimers (node:internal/timers:512:7)
+시작
+Error: 의도적인 에러 발생!
+    at Timeout._onTimeout (D:\공부\Javascript\Study_Node.js\Codes\chapter03\js\error1.js:5:15)
+    at listOnTimeout (node:internal/timers:569:17)
+    at process.processTimers (node:internal/timers:512:7)
+...
+```
+
+프로세스가 종료하면 `setInterval`에 등록한 콜백 함수도 실행되지 않을 텐데, `Ctrl`+`C`를 입력하여 직접 종료하기 전까진 계속해서 실행되고 있다. **try/catch**문으로 예외가 처리되고 있기 때문이다.
+
+다음으로는 노드 자체에서 잡아주는 에러에 대해 알아본다.
+
+**error2.js**
+```
+const fs = require("fs");
+
+setInterval(() => {
+    fs.unlink("./abcdefg.js", (err) => {
+        if (err) {
+            console.error(err);
+        }
+    });
+}, 1000);
+```
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\js> node error2
+[Error: ENOENT: no such file or directory, unlink 'D:\공부\Javascript\Study_Node.js\Codes\chapter03\js\abcdefg.js'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'unlink',
+  path: 'D:\\공부\\Javascript\\Study_Node.js\\Codes\\chapter03\\js\\abcdefg.js'
+}
+[Error: ENOENT: no such file or directory, unlink 'D:\공부\Javascript\Study_Node.js\Codes\chapter03\js\abcdefg.js'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'unlink',
+  path: 'D:\\공부\\Javascript\\Study_Node.js\\Codes\\chapter03\\js\\abcdefg.js'
+}
+...
+```
+
+`fs.unlink`로 존재하지 않는 파일을 지우려고 시도했지만 프로세스가 멈추진 않았다. 노드 내장 모듈은 실행 중인 프로세스를 멈추는 대신 에러 로그를 기록하기 때문이다.
+
+이전 예제들 중에는 에러가 발생했을 때 단순히 `throw`하기만 한 코드들이 존재한다. 그런데 이 경우에 **try/catch**문으로 예외를 즉시 처리하지 않으면 노드 프로세스가 멈추어 버린다.
+
+다음으로는 프로미스의 예외 처리 코드를 살펴본다.
+
+**error3.js**
+```
+const fs = require("fs").promises;
+
+setInterval(() => {
+    fs.unlink("./abcdefg.js").catch(console.error);
+}, 1000);
+```
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\js> node error3
+[Error: ENOENT: no such file or directory, unlink 'D:\공부\Javascript\Study_Node.js\Codes\chapter03\js\abcdefg.js'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'unlink',
+  path: 'D:\\공부\\Javascript\\Study_Node.js\\Codes\\chapter03\\js\\abcdefg.js'
+}
+[Error: ENOENT: no such file or directory, unlink 'D:\공부\Javascript\Study_Node.js\Codes\chapter03\js\abcdefg.js'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'unlink',
+  path: 'D:\\공부\\Javascript\\Study_Node.js\\Codes\\chapter03\\js\\abcdefg.js'
+}
+```
+
+노드 16 버전부터는 프로미스의 에러는 반드시 `catch`로 잡아야 한다. 아니면 에러 발생과 함께 노드 프로세스가 종료된다.
+
+마지막으로 예측 불가능한 에러를 처리하는 예제를 살펴본다.
+
+**error4.js**
+```
+process.on("uncaughtException", (err) => {
+    console.error("예기치 못한 에러:", err);
+});
+
+setInterval(() => {
+    throw new Error("예기치 못한 에러 발생!");
+}, 1000);
+
+setTimeout(() => {
+    console.log("실행됩니다");
+}, 2000);
+```
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter03\js> node error4
+예기치 못한 에러: Error: 예기치 못한 에러 발생!
+    at Timeout._onTimeout (D:\공부\Javascript\Study_Node.js\Codes\chapter03\js\error4.js:6:11)
+    at listOnTimeout (node:internal/timers:569:17)
+    at process.processTimers (node:internal/timers:512:7)
+실행됩니다
+예기치 못한 에러: Error: 예기치 못한 에러 발생!
+    at Timeout._onTimeout (D:\공부\Javascript\Study_Node.js\Codes\chapter03\js\error4.js:6:11)
+    at listOnTimeout (node:internal/timers:569:17)
+    at process.processTimers (node:internal/timers:512:7)
+예기치 못한 에러: Error: 예기치 못한 에러 발생!
+    at Timeout._onTimeout (D:\공부\Javascript\Study_Node.js\Codes\chapter03\js\error4.js:6:11)
+    at listOnTimeout (node:internal/timers:569:17)
+    at process.processTimers (node:internal/timers:512:7)
+예기치 못한 에러: Error: 예기치 못한 에러 발생!
+    at Timeout._onTimeout (D:\공부\Javascript\Study_Node.js\Codes\chapter03\js\error4.js:6:11)
+    at listOnTimeout (node:internal/timers:569:17)
+    at process.processTimers (node:internal/timers:512:7)
+...
+```
+
+`process` 객체에 `uncaughtException` 이벤트에 대한 리스너를 등록했다. 이러면 처리하지 못한 에러가 발생했을 때 이벤트 리스너가 실행되고 프로세스가 종료되지 않은 채로 유지된다. 그러나 웬만하면 예외 처리를 미리 꼼꼼히 해두고 정말 예기치 않은 문제에 대해서만 `uncaughtException` 이벤트 리스너를 사용하는 것이 권장된다. 노드에서는 이 이벤트 발생 후 다음 동작이 제대로 진행된다는 것을 보증하지 않기 때문이다.
+
+따라서 `uncaughtException`은 예상치 못한 에러를 로깅하고 프로세스를 종료하는 용도로만 쓰는 것이 바람직하다.
+
+
+### 3.8.1 자주 발생하는 에러들
+
+자바스크립트 문법상의 에러를 제외하고, 자주 발생하는 에러들을 모아두었다.
+
+- **node: command not found**: 노드를 설치했지만 이 에러가 발생한다면 환경 변수를 제대로 설정해야 한다.
+- **ReferenceError: [module name] is not defined**: 모듈을 require했는지 확인해야 한다.
+- **Error: Cannot find module [module name]**: 해당 모듈을 require했지만 설치하지 않았다. `npm i` 명령어로 설치한다.
+- **Error: [ERR_MODULE_NOT_FOUND]**: 존재하지 않는 모듈을 불러오려 할 때 발생한다.
+- **Error: Can't set headers after they are sent**: 요청에 대한 응답을 중복하여 전송할 때 발생한다.
+- **FATAL ERROR: CALL_AND_RETRY_LAST Allocation failed - JavaScript heap out of memory**: 코드를 실행할 때 메모리가 부족해서 스크립트가 정상적으로 작동하지 않는 것이다. 코드는 정상적이고 실제로 메모리가 부족한 것이라면 노드를 실행할 때 `node --max-old-space-size=4096 [filename]`과 같은 명령어를 사용하여 메모리 할당 용량을 늘릴 수 있다.
+- **UnhandledPromiseRejectionWarning: Unhandled promise rejection**: 프로미스 사용 시 `catch` 메소드를 붙이지 않으면 발생한다.
+- **EADDRINUSE [port number]**: 해당 포트 번호에 이미 다른 프로세스가 연결되어 있는 경우 발생한다.
+- **EACCES 또는 EPERM**: 노드가 작업을 수행하는 데 권한이 충분하지 않은 경우 발생한다.
+- **EJSONPARSE**: package.json 등의 JSON 파일에 문법 오류가 있을 때 발생한다.
+- **ECONNREFUSED**: 요청을 보냈으나 연결이 성립하지 않을 때 발생한다.
+- **ETARGET**: package.json에 기록한 패키지 버전이 존재하지 않을 때 발생한다.
+- **ETIMEOUT**: 요청을 보냈으나 응답이 시간 내에 오지 않을 때 발생한다.
+- **ENOENT: no such file or directory**: 지정한 디렉터리나 파일이 존재하지 않는 경우 발생한다.
+- - -
+
+## 3.9 함께 보면 좋을 자료
+
+생략
+- - -
