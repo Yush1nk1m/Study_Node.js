@@ -748,5 +748,129 @@ http2.createSecureServer({
 
 **cluster.js**
 ```
+const cluster = require("cluster");
+const http = require("http");
+const numCPUs = require("os").cpus().length;
 
+if (cluster.isMaster) {
+    console.log(`마스터 프로세스 ID: ${process.pid}`);
+
+    // CPU 개수만큼 워커 프로세스 생성
+    for (let i = 0; i < numCPUs; i++) {
+        cluster.fork();
+    }
+
+    // 워커 프로세스가 종료되었을 때
+    cluster.on("exit", (worker, code, signal) => {
+        console.log(`${worker.process.pid}번 워커 프로세스가 종료되었습니다.`);
+        console.log("code:", code, "signal:", signal);
+    });
+}
+else {
+    // 워커 프로세스들이 포트에서 대기
+    http.createServer((req, res) => {
+        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+        res.write("<h1>Hello Node!</h1>");
+        res.end("<p>Hello Cluster!</p>");
+    }).listen(8086);
+
+    console.log(`${process.pid}번 워커 프로세스 실행`);
+}
 ```
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter04> node cluster
+마스터 프로세스 ID: 13068
+2052번 워커 프로세스 실행
+4160번 워커 프로세스 실행
+1968번 워커 프로세스 실행
+10048번 워커 프로세스 실행
+6196번 워커 프로세스 실행
+4220번 워커 프로세스 실행
+2036번 워커 프로세스 실행
+2216번 워커 프로세스 실행
+```
+
+앞선 장에서 작성했던 **worker_threads**와 코드 구조가 비슷하다. 그러나 스레드가 아니라 프로세스를 생성하는 것이다. 클러스터에는 마스터 프로세스와 워커 프로세스가 존재하는데, 마스터 프로세스는 CPU의 개수만큼 워커 프로세스를 만들고 8086번 포트에서 대기한다. 요청이 들어오면 만들어진 워커 프로세스에 요청을 분배한다.
+
+**cluster.js**
+```
+const cluster = require("cluster");
+const http = require("http");
+const numCPUs = require("os").cpus().length;
+
+if (cluster.isMaster) {
+    console.log(`마스터 프로세스 ID: ${process.pid}`);
+
+    // CPU 개수만큼 워커 프로세스 생성
+    for (let i = 0; i < numCPUs; i++) {
+        cluster.fork();
+    }
+
+    // 워커 프로세스가 종료되었을 때
+    cluster.on("exit", (worker, code, signal) => {
+        console.log(`${worker.process.pid}번 워커 프로세스가 종료되었습니다.`);
+        console.log("code:", code, "signal:", signal);
+    });
+}
+else {
+    // 워커 프로세스들이 포트에서 대기
+    http.createServer((req, res) => {
+        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+        res.write("<h1>Hello Node!</h1>");
+        res.end("<p>Hello Cluster!</p>");
+
+        setTimeout(() => {      // 워커 프로세스가 존재하는지 확인하기 위해 1초마다 강제 종료
+            process.exit(1);
+        }, 1000);
+    }).listen(8086);
+
+    console.log(`${process.pid}번 워커 프로세스 실행`);
+}
+```
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter04> node cluster 
+마스터 프로세스 ID: 6284
+8112번 워커 프로세스 실행
+14648번 워커 프로세스 실행
+4680번 워커 프로세스 실행
+13752번 워커 프로세스 실행
+8156번 워커 프로세스 실행
+16264번 워커 프로세스 실행
+13112번 워커 프로세스 실행
+7400번 워커 프로세스 실행
+7400번 워커 프로세스가 종료되었습니다.
+code: 1 signal: null
+13112번 워커 프로세스가 종료되었습니다.
+code: 1 signal: null
+16264번 워커 프로세스가 종료되었습니다.
+code: 1 signal: null
+8156번 워커 프로세스가 종료되었습니다.
+code: 1 signal: null
+13752번 워커 프로세스가 종료되었습니다.
+code: 1 signal: null
+4680번 워커 프로세스가 종료되었습니다.
+code: 1 signal: null
+14648번 워커 프로세스가 종료되었습니다.
+code: 1 signal: null
+8112번 워커 프로세스가 종료되었습니다.
+code: 1 signal: null
+```
+
+실제로 워커 프로세스가 동작하는지 확인하기 위해 요청을 받을 시 응답하고 1초 뒤에 강제 종료하는 로직을 추가했다. 이제 요청을 보낼 때마다 응답한 프로세스가 하나씩 종료하는 것을 확인할 수 있다.
+
+`코드(code)`로는 `process.exit`의 인수로 넣어준 값이 출력되고, `신호(signal)`는 존재하는 경우 프로세스를 종료한 신호의 이름이 출력된다.
+
+만약 워커 프로세스가 종료될 때마다 동시에 `cluster.fork()`로 워커 프로세스를 하나 새롭게 생성한다면 서버가 계속 작동할 수 있을 것이다. 그러나 이러한 방식으로 강제 종료 상황을 방지하는 것은 좋지 않은 생각이다. 그것보다는 강제 종료가 되게 한 원인을 찾아 교정해야 한다.
+
+실무에서는 `cluster` 모듈보다는 `pm2` 등의 모듈로 클러스터링을 사용하곤 한다.
+
+이번 장에서 작성한 서버 코드들은 조건이 많아질수록 코드가 매우 복잡해지는 문제를 갖고 있다. 이는 뒤에 배울 `Express` 모듈로 해결할 수 있다.
+- - -
+
+## 4.6 함께 보면 좋은 자료
+
+생략
