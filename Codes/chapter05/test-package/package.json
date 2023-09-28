@@ -1,5 +1,5 @@
 {
-  "name": "test-package",
+  "name": "yushin-test-package",
   "version": "0.0.1",
   "description": "A package for test",
   "main": "index.js",
