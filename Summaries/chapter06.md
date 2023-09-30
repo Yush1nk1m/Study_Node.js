@@ -762,3 +762,785 @@ const upload = multer({
 
 
 ## 6.3 Router 객체로 라우팅 분리하기
+
+이전 절에서 라우터를 만들 때는 요청 메소드와 주소별로 if문 분기 처리를 하느라 코드가 매우 복잡했다. 익스프레스는 라우팅을 깔끔하게 관리할 수 있어 이러한 단점이 해결된다.
+
+**app.js**에서 `app.get` 같은 메소드가 라우터 부분이다. 라우터를 많이 연결하면 코드가 길어지므로 익스프레스에서는 라우터를 분리할 수 있는 방법을 제공한다.
+
+다음과 같이 **routers** 디렉터리를 생성하고 그 안에 예제를 작성한다.
+
+**index.js**
+```
+const express = require("express");
+
+const router = express.Router();
+
+// GET / 라우터
+router.get("/", (req, res) => {
+    res.send("Hello, Express");
+});
+
+module.exports = router;
+```
+
+**user.js**
+```
+const express = require("express");
+
+const router = express.Router();
+
+// GET /user 라우터
+router.get("/user", (req, res) => {
+    res.send("Hello, User");
+});
+
+module.exports = router;
+```
+
+이렇게 만들어진 라우터를 **app.js**에 연결한다. 또한, 에러 처리 미들웨어 위에 404 상태 코드를 응답하는 미들웨어를 하나 추가한다.
+
+**app.js**
+```
+const express = require("express");
+const morgan = require("morgan");
+const cookieParser = require("cookie-parser");
+const session = require("express-session");
+const dotenv = require("dotenv");
+const path = require("path");
+
+dotenv.config();
+const indexRouter = require("./routers");
+const userRouter = require("./routers/user");
+const app = express();
+app.set("port", process.env.PORT || 3000);
+
+...
+
+app.use("/", indexRouter);
+app.use("/user", userRouter);
+
+app.use((req, res, next) => {
+    res.status(404).send("Not Found");
+})
+
+app.use((err, req, res, next) => {
+    console.error(err);
+    res.status(500).send(err.message);
+});
+
+app.listen(app.get("port"), () => {
+    console.log(`${app.get("port")}번 포트에서 대기 중`);
+});
+```
+
+**index.js**와 **user.js**는 모양이 거의 비슷하지만 다른 주소의 라우터 역할을 하고 있다. `app.use`로 연결할 때의 차이 때문인데, `indexRouter`는 `use`의 `/`와 `get`의 `/`가 합쳐져 `GET /` 라우터가 되었고, `userRouter`는 `use`의 `/user`와 `get`의 `/`가 합쳐져 `GET /user` 라우터가 되었다. 이렇게 `app.use`로 연결할 때 주소가 합쳐진다.
+
+이전 절에서 알아본 `next("route")` 기능은 라우터에 연결된 나머지 기능들을 건너뛰고 싶을 때 사용한다.
+
+```
+router.get("/", (req, res, next) => {
+  next("route");
+}, (req, res, next) => {
+  console.log("실행되지 않습니다.");
+  next();
+}, (req, res, next) => {
+  console.log("실행되지 않습니다.");
+  next();
+});
+
+router.get("/", (req, res, next) => {
+  console.log("실행됩니다.");
+  res.send("Hello, Express");
+});
+```
+
+위 예제처럼 같은 주소에 대한 라우터를 여러 개 만들어도 된다. 라우터가 몇 개이든 `next()`를 호출하면 다음 미들웨어가 실행된다. 단, 이때 `next("route")`를 호출하면 같은 라우터의 다음 미들웨어들은 건너뛰고 다음 라우터를 실행하는 것이다.
+
+라우터의 주소에는 정규표현식을 비롯한 특수 패턴을 사용할 수 있다. 여러 가지 패턴이 존재하지만 **라우트 매개변수**라는 패턴만을 살펴본다.
+
+```
+router.get("/users/:id", (req, res) => {
+  console.log(req.params, req.query);
+});
+```
+
+주소에 있는 `:id`는 문자 그대로를 의미하는 것이 아니다. 이 주소는 `/users/1`이나 `/users/123`과 같은 주소들을 라우터가 처리할 수 있게 해준다. 이 방식의 장점은 `:id`에 해당하는 1이나 123을 조회할 수 있다는 점이며, 그 값들은 `req.params` 객체 안에 저장된다. 위 예제의 경우 값들은 `req.params.id`에 저장될 것이다. 만약 주소에 쿼리스트링이 포함된다면 그 정보는 `req.query` 객체에 저장된다.
+
+단, 이 패턴을 사용할 때는 일반 라우터보다 뒤에 위치해야 한다. 다양한 라우터를 아우르는 와일드카드 역할을 하므로 일반 라우터보다는 뒤에 위치해야 다른 라우터들을 방해하지 않을 수 있다. 다음 예를 통해 설명한다.
+
+```
+router.get("/users/:id", (req, res) => {
+  console.log("이 라우터만 실행됩니다.");
+});
+
+router.get("/users/like, (req, res) => {
+  console.log("이 라우터는 실행되지 않습니다.);
+});
+```
+
+사용자가 `/users/like` 주소로 요청을 보내더라도 라우트 매개변수 패턴을 사용한 라우터가 앞에 있으므로 주소의 `like`를 `id`로 인식하게 된다. 해당 라우터에는 `next`가 없으므로 `/users/like`에 대한 라우터는 실행될 수 없게 된다.
+
+**app.js**에서 에러 처리 미들웨어 위에 넣어둔 미들웨어는 일치하는 라우터가 없을 때 404 상태 코드를 응답하는 역할을 한다. 이 미들웨어가 존재하지 않아도 익스프레스가 자체적으로 404 에러를 처리할 수 있지만 직접 연결해주는 것이 좋다.
+
+```
+app.use((req, res, next) => {
+  res.status(404).send("Not Found");
+});
+```
+
+이 미들웨어가 맨 앞에 존재한다면 모든 요청에 대해 404 상태 코드를 전송하기만 할 것이다. 이처럼 익스프레스를 활용한 서버에서는 미들웨어를 사용하는 위치가 중요하다.
+
+마지막으로 라우터에서 자주 쓰이는 `app.route`, `router.route`에 대해 알아본다. 다음과 같이 주소는 같지만 메소드는 다른 코드가 있다고 가정한다.
+
+```
+router.get("/abc", (req, res) => {
+  res.send("GET /abc");
+});
+
+router.post("/abc", (req, res) => {
+  res.send("POST /abc");
+});
+```
+
+위 코드를 다음과 같이 압축할 수 있다.
+
+```
+router.route("/abc")
+  .get((req, res) => {
+    res.send("GET /abc");
+  })
+  .post((req, res) => {
+    res.send("POST /abc");
+  });
+```
+- - -
+
+
+## 6.4 req, res 객체 살펴보기
+
+익스프레스의 `req`, `res` 객체는 `http` 모듈의 `req`, `res` 객체를 확장한 것이다. 그러므로 기존 `http` 모듈의 메소드도 사용할 수 있고, 익스프레스가 추가한 메소드나 속성을 사용할 수도 있다. 그러나 익스프레스의 메소드가 충분히 편리하기 때문에 기존 메소드는 잘 사용되지 않는다.
+
+**req 객체의 메소드**
+- `req.app`: `req` 객체를 통해 `app` 객체에 접근한다. `req.app.get("port")`와 같이 사용할 수 있다.
+- `req.body`: `body-parser` 미들웨어가 만드는 요청의 본문을 해석한 객체이다.
+- `req.cookies`: `cookie-parser` 미들웨어가 만드는 요청의 쿠키를 해석한 객체이다.
+- `req.ip`: 요청의 ip 주소가 저장되어 있는 객체이다.
+- `req.params`: 라우트 매개변수에 대한 정보가 저장되어 있는 객체이다.
+- `req.query`: 쿼리스트링에 대한 정보가 저장되어 있는 객체이다.
+- `req.signedCookies`: 서명된 쿠키들이 저장되어 있는 객체이다.
+- `req.get([header name])`: 헤더의 값을 가져오고 싶을 때 사용하는 메소드이다.
+
+**res 객체의 메소드**
+- `res.app`: `res` 객체를 통해 `app` 객체에 접근한다.
+- `res.cookie([key], [value], [option])`: 쿠키를 생성한다.
+- `res.clearCookie([key], [value], [option])`: 쿠키를 삭제한다.
+- `res.end()`: 데이터 없이 응답을 보낸다.
+- `res.json(JSON)`: JSON 형식의 응답을 보낸다.
+- `res.locals`: 하나의 요청 안에서 미들웨어 간 데이터를 교환하고 싶을 때 사용하는 객체이다.
+- `res.redirect([address])`: 리다이렉트할 주소와 함께 응답을 보낸다.
+- `res.render([view], [data])`: 템플릿 엔진을 렌더링해서 응답한다.
+- `res.send([data])`: 데이터와 함께 응답을 보낸다.
+- `res.sendFile([path])`: 경로에 위치한 파일로 응답을 보낸다.
+- `res.set([header], [value])`: 응답의 헤더를 설정한다.
+- `res.status([status code])`: 응답 시의 HTTP 상태 코드를 지정한다.
+
+`req`나 `res` 객체의 메소드들은 다음과 같이 `메소드 체이닝(method chaining)`을 지원하는 경우가 많다. 메소드 체이닝을 활용하면 코드 양을 줄일 수 있다.
+
+```
+res
+  .status(201)
+  .cookie("test", "test")
+  .redirect("/admin");
+```
+
+- - -
+
+
+## 6.5 템플릿 엔진 사용하기
+
+자바스크립트 없는 순수한 HTML은 정적인 언어이다. 정적인 기능만 사용할 수 있고 사용자가 기능을 직접 추가할 수 없다. HTML로 규칙이 있는 1000개의 데이터를 표현하고 싶다면 1000개를 모두 직접 코딩해야 한다. 반복문을 사용할 수 없기 때문이다.
+
+템플릿 엔진은 자바스크립트를 사용하여 HTML을 렌더링할 수 있게 한다. 따라서 기존 HTML과는 문법이 약간 다를 수 있으며, 자바스크립트 문법이 포함되기도 한다.
+
+이번 절에서는 대표적인 템플릿 엔진인 `퍼그(Pug)`와 `넌적스(Nunjucks)`에 대해 살펴본다. 앞으로의 예제는 넌적스를 사용한다.
+
+
+### 6.5.1 퍼그(제이드)
+
+`퍼그(Pug)` (또는 `제이드(Jade)`)는 Ruby 언어와 문법이 비슷하고 기본적으로 쉬운 문법을 갖고 있다는 것이 특징이다. 다음과 같이 퍼그를 설치하고, 익스프레스와 연결하기 위해 **app.js**를 수정한다.
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter06\learn-express> npm i pug
+
+added 38 packages, and audited 161 packages in 3s
+
+18 packages are looking for funding
+  run `npm fund` for details
+
+found 0 vulnerabilities
+```
+
+**app.js**
+```
+...
+app.set("port", process.env.PORT || 3000);
+app.set("views", path.join(__dirname, "views"));
+app.set("view engine", "pug");
+...
+```
+
+`views`는 템플릿 파일들이 위치한 디렉터리를 지정하는 것이다. `res.render` 메소드가 해당 디렉터리 기준으로 템플릿 엔진을 찾아서 렌더링한다. 예를 들어 `res.render("index")`라면 `views/index.pug`를 렌더링한다. `res.render("admin/main")`이라면 `views/admin/main.pug`를 렌더링한다.
+
+`view engine`은 어떤 종류의 템플릿 엔진을 사용할 것인지를 나타낸다. 현재는 `pug`로 설정한 상태이다.
+
+#### 6.5.1.1 HTML 표현
+
+`pug`는 기존의 HTML과 다르게 화살 괄호(<, >)와 닫는 태그(</>)가 없다. 탭 또는 스페이스로만 태그의 부모-자식 관계를 규명한다. 탭의 개수나 스페이스 개수는 상관이 없으며, 모든 파일에 동일한 종류의 들여쓰기를 적용하면 된다. 자식 태그는 부모 태그보다 들여쓰기 개수가 더 많아야 한다는 것만 주의한다.
+
+기본적인 퍼그와 HTML의 코드 차이점을 살펴본다.
+
+**Pug**
+```
+doctype html
+  html
+    head
+      title= title
+      link(rel="stylesheet", href="/stylesheets/style.css")
+```
+
+**HTML**
+```
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>익스프레스</title>
+    <link rel="stylesheet" href="/style.css"/>
+  </head>
+</html>
+```
+
+퍼그는 화살 괄호가 없으므로 태그의 속성도 조금 다르게 표현된다. 태그명 뒤에 소괄호로 태그들을 묶어 적는다.
+
+속성 중 아이디와 클래스가 있는 경우엔 다음과 같이 표현할 수 있다. 특별하게 `div` 태그인 경우 `div`는 생략할 수 있다.
+
+**Pug**
+```
+#login-button
+.post-image
+span#highlight
+p.hidden.full
+```
+
+**HTML**
+```
+<div id="login-button"></div>
+<div class="post-image"></div>
+<span id="highlight"></span>
+<p class="hidden full"></p>
+```
+
+HTML 텍스트는 다음과 같이 태그 또는 속성 뒤에 한 칸을 띄고 입력하면 된다.
+
+**Pug**
+```
+p Welcome to Express
+button(type="submit") 전송
+```
+
+**HTML**
+```
+<p>Welcome to Express</p>
+<button type="submit">전송</button>
+```
+
+에디터에서 텍스트를 여러 줄 입력하고 싶다면 다음과 같이 파이프(`|`)를 넣는다. HTML 코드에서는 한 줄로 나온다.
+
+**Pug**
+```
+p
+  | 안녕하세요.
+  | 여러 줄을 입력합니다.
+  br
+  | 태그도 중간에 넣을 수 있습니다.
+```
+
+**HTML**
+```
+<p>
+  안녕하세요. 여러 줄을 입력합니다.
+  <br/>
+  태그도 중간에 넣을 수 있습니다.
+</p>
+```
+
+`style`이나 `script` 태그로 CSS 또는 자바스크립트 코드를 작성하고 싶다면 다음과 같이 태그 뒤에 점(`.`)을 붙인다.
+
+**Pug**
+```
+style.
+  h1 {
+    font-size: 30px;
+  }
+script.
+  const message = "Pug";
+  alert(message);
+```
+
+**HTML**
+```
+<style>
+  h1 {
+    font-size: 30px;
+  }
+</style>
+<script>
+  const message = "Pug";
+  alert(message);
+</script>
+```
+
+
+#### 6.5.1.2 변수
+
+HTML과 다르게 자바스크립트 변수를 템플릿에 렌더링할 수 있다. `res.render`를 호출할 때 보내는 변수를 퍼그가 처리한다. **routes/index.js**의 코드를 보면 다음과 같은 부분이 있다.
+
+```
+router.get("/", (req, res, next) => {
+    res.render("index", { title: "Express" });
+});
+```
+
+`res.render([template], [variable object])`는 익스프레스가 `res` 객체에 추가한 템플릿 렌더링을 위한 메소드이다. **index.pug**를 HTML로 렌더링하면서 `{ title: "Express" }`라는 객체를 변수로 설정한다. `.pug` 확장자를 가진 파일의 `title` 부분이 모두 `Express`로 치환된다. 즉, HTML에서도 변수를 사용할 수 있게 된 것이다.
+
+`res.render`의 두 번째 인수로 변수 객체를 넣는 대신 `res.locals` 객체를 사용해서 변수를 넣을 수도 있다.
+
+```
+router.get("/", (req, res, next) => {
+  res.locals.title = "Express";
+  res.render("index");
+});
+```
+
+위와 같이 코드를 작성하면 템플릿 엔진이 `res.locals` 객체를 읽어서 변수를 설정한다. 이 방식을 사용하면 현재 라우터뿐만 아니라 같은 요청 내 실행되는 다른 미들웨어들에서도 `res.locals` 객체에 접근함으로써 데이터를 공유할 수 있다는 장점이 있다. 따라서 다른 미들웨어들에서 템플릿 엔진용 변수를 미리 설정할 수도 있다.
+
+이제 퍼그에서 변수를 사용하는 방법을 살펴본다.
+
+**Pug**
+```
+h1= title
+p Welcome to #{title}
+button(class=title, type="submit") 전송
+input(placeholder=title + " 연습")
+```
+
+**HTML**
+```
+<h1>Express</h1>
+<p>Welcome to Express</p>
+<button class="title" type="submit">전송</button>
+<input placeholder="Express 연습"/>
+```
+
+서버로부터 받은 변수는 다양한 방법으로 퍼그에서 사용할 수 있다. 변수를 텍스트로 사용하고 싶다면 태그 뒤에 `=`을 붙인 후 변수를 입력한다. 속성에도 `=`을 붙인 후 변수를 사용할 수 있다. 텍스트 중간에 변수를 넣고 싶다면 `#{variable}`을 사용하면 된다. 그러면 변수가 해당 위치에 치환된다. `#{}`와 `=` 기호 뒷부분은 자바스크립트로 해석하므로 `input` 태그의 예시처럼 자바스크립트 구문을 사용해도 된다.
+
+`-`를 먼저 입력하면 그 뒤에 자바스크립트 구문을 작성할 수 있다. 여기에 변수를 선언하면 그 다음 줄부터 해당 변수를 사용할 수도 있다.
+
+**Pug**
+```
+- const node = "Node.js"
+- const js = "Javascript"
+p #{node}와 #{js}
+```
+
+**HTML**
+```
+<p>Node.js와 Javascript</p>
+```
+
+퍼그는 기본적으로 변수의 특수 문자를 HTML 엔티티(entity)로 이스케이프(escape)한다. 이스케이프란 문법과 관련 없는 문자로 바꾸는 행위를 의미한다. 이스케이프를 원하지 않는다면 `=` 대신 `!=`을 사용하면 된다.
+
+**Pug**
+```
+p= "<strong>이스케이프</strong>"
+p!= "<string>이스케이프하지 않음</strong>"
+```
+
+**HTML**
+```
+<p>&lt;strong&gt;이스케이프&lt;/strong&gt;</p>
+<p><strong>이스케이프하지 않음</strong></p>
+```
+
+
+#### 6.5.1.3 반복문
+
+HTML과 다르게 반복문도 사용할 수 있다. 단, 반복 가능한 변수여야만 한다.
+
+다음과 같이 `each`로 반복문을 돌릴 수 있다. `each` 대신 `for`를 써도 된다.
+
+**Pug**
+```
+ul
+  each fruit in ["사과", "배", "오렌지", "바나나", "복숭아"]
+    li= fruit
+```
+
+**HTML**
+```
+<ul>
+  <li>사과</li>
+  <li>배</li>
+  <li>오렌지</li>
+  <li>바나나</li>
+  <li>복숭아</li>
+</ul>
+```
+
+반복문 사용 시 인덱스도 가져올 수 있다.
+
+**Pug**
+```
+ul
+  each fruit, index in ["사과", "배", "오렌지", "바나나", "복숭아"]
+    li= (index + 1) + "번째 " + fruit
+```
+
+**HTML**
+```
+<ul>
+  <li>1번째 사과</li>
+  <li>2번째 배</li>
+  <li>3번째 오렌지</li>
+  <li>4번째 바나나</li>
+  <li>5번째 복숭아</li>
+</ul>
+```
+
+
+#### 6.5.1.4 조건문
+
+조건문으로 편리하기 분기 처리를 할 수도 있다. `if`, `else if`, `else`를 사용할 수 있다. 다음은 로그인 여부에 따라 다르게 HTML을 렌더링하는 예시이다.
+
+**Pug**
+```
+if isLoggedIn
+  div 로그인 되었습니다.
+else
+  div 로그인이 필요합니다.
+```
+
+**HTML**
+```
+지원하지 않는다.
+```
+
+`case`문도 가능하다.
+
+**Pug**
+```
+case fruit
+  when "apple"
+    p 사과입니다.
+  when "banana"
+    p 바나나입니다.
+  when "orange"
+    p 오렌지입니다.
+  default
+    p 사과도 바나나도 오렌지도 아닙니다.
+```
+
+**HTML**
+```
+지원하지 않는다.
+```
+
+
+#### 6.5.1.5 include
+
+다른 퍼그나 HTML 파일을 삽입할 수도 있다. 헤더나 푸터, 내비게이션처럼 웹을 제작할 때 공통되는 부분을 따로 관리할 수 있기 때문에 페이지마다 동일한 HTML을 넣어야 하는 번거로움을 없앤다. `include [path]`와 같은 형태로 사용한다.
+
+**Pug**
+
+- **header.pug**
+```
+header
+    a(href="/") Home
+    a(href="/about") About 
+```
+- **footer.pug**
+```
+footer
+    div 푸터입니다
+```
+- **main.pug**
+```
+include header
+main
+    h1 메인 파일
+    p 다른 파일을 include할 수 있습니다.
+include footer
+```
+
+**HTML**
+```
+<header>
+  <a href="/">Home</a>
+  <a href="/about">About</p>
+</header>
+<main>
+  <h1>메인 파일</h1>
+  <p>다른 파일을 include할 수 있습니다.</p>
+</main>
+<footer>
+  <div>푸터입니다.</div>
+</footer>
+```
+
+
+#### 6.5.1.6 extends와 block
+
+레이아웃을 정할 수 있으며, 공통되는 레이아웃 부분을 따로 관리할 수 있다. `include`와도 함께 사용할 수 있다.
+
+**Pug**
+
+- **layout.pug**
+```
+doctype html 
+html 
+    head 
+        title= title 
+        link(rel="stylesheet", href="/style.css")
+        block style 
+    body 
+        header 헤더입니다.
+        block content 
+        footer 푸터입니다.
+        block script
+```
+- **body.pug**
+```
+extends layout
+
+block content 
+    main 
+        p 내용입니다.
+
+block script 
+    script(src="/main.js")
+```
+
+**HTML**
+```
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Express</title>
+    <link rel="stylesheet" href="/style.css"/>
+  </head>
+  <body>
+    <header>헤더입니다.</header>
+    <main>
+      <p>내용입니다.</p>
+    </main>
+    <footer>푸터입니다.</footer>
+    <script src="/main.js"></script>
+  </body>
+</html>
+```
+
+레이아웃이 될 파일에는 공통된 마크업을 넣되, 페이지마다 달라지는 부분을 `block`으로 비워둔다. `block`은 여러 개 만들어도 된다. `block [block name]`과 같은 형태로 선언한다.
+
+`block`이 되는 파일에서는 `extends` 키워드로 레이아웃 파일을 지정하고 `block` 부분을 작성한다. 이때 선언부보다 한 단계 더 들여쓰기 되어 있어야 한다. 나중에 익스프레스에서 `res.render("body")`를 사용하면 하나의 HTML로 합쳐 렌더링할 수 있다. `.pug` 확장자는 생략 가능하며 `block` 부분이 서로 합쳐진다.
+
+이제 퍼그의 문법을 충분히 학습했으므로, 프로젝트 디렉터리의 `views` 디렉터리에 다음과 같이 **layout.pug**, **index.pug**, **error.pug**를 작성한다.
+
+**layout.pug**
+```
+doctype html 
+html 
+    head 
+        title= title 
+        link(rel="stylesheet", href="/style.css")
+    body 
+        block content 
+```
+
+**index.pug**
+```
+extends layout 
+
+block content 
+    h1= title 
+    p Welcome to #{title}
+```
+
+**error.pug**
+```
+extends layout 
+
+block content 
+    h1= message 
+    h2= error.status 
+    pre #{error.stack}
+```
+
+**index.pug**는 서버의 `res.render`로부터 `title`이라는 변수를 받아 렌더링한다. 여기서 작성된 `block content`는 `layout.pug`로 연결되어 레이아웃의 `block content` 부분을 채운다.
+
+**error.pug**도 `block content` 부분이 `layout.pug`와 연결된다. `res.render`로부터 `message`와 `error` 변수를 받아 렌더링한다.
+
+
+### 6.5.2 넌적스
+
+`넌적스(Nunjucks)`는 퍼그의 HTML 문법 변화에 적응하기 힘들 경우 유용한 템플릿 엔진이다. HTML 문법을 그대로 사용하면서도 추가로 자바스크립트 문법을 사용할 수 있다.
+
+다음과 같이 넌적스를 설치하고 **app.js**의 `view engine`을 퍼그 대신 넌적스로 교체한다.
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter06\learn-express> npm i nunjucks
+
+added 3 packages, and audited 164 packages in 1s
+
+18 packages are looking for funding
+  run `npm fund` for details
+
+found 0 vulnerabilities
+```
+
+**app.js**
+```
+...
+const nunjucks = require("nunjucks");
+
+dotenv.config();
+const indexRouter = require("./routes");
+const userRouter = require("./routes/user");
+
+const app = express();
+app.set("port", process.env.PORT || 3000);
+app.set("view engine", "html");
+
+nunjucks.configure("views", {
+    express: app,
+    watch: true,
+});
+...
+```
+
+퍼그와는 연결 방법이 다소 다르다. `configure`의 첫 번째 인수로 `view` 디렉터리의 경로를 전달하고, 두 번째 인수로는 옵션을 전달한다. 이때 `express` 속성에 `app` 객체를 연결한다. `watch` 옵션이 true이면 HTML 파일이 변경될 때 템플릿 엔진을 다시 렌더링한다.
+
+파일은 `.pug`와 같은 특수한 확장자 대신 `.html`을 그대로 사용해도 된다. 넌적스임을 구분해야 한다면 `.njk`를 사용하면 된다. 단, `.njk` 확장자를 사용할 때는 **app.js**의 `view engine`도 `njk`로 바꾸어야 한다.
+
+이제 위에서 살펴본 퍼그 예제와 같은 예제를 넌적스 문법으로 작성해 본다.
+
+
+#### 6.5.2.1 변수
+
+`res.render` 호출 시 보내는 변수를 넌적스가 처리한다. 다시 다음과 같은 코드를 확인해 보자.
+
+```
+router.get("/", (req, res, next) => {
+    res.render("index", { title: "Express" });
+});
+```
+
+**Nunjucks**
+```
+<h1>{{title}}</h1>
+<p>Welcome to {{title}}</p>
+<button class="{{title}}" type="submit">전송</button>
+<input placeholder="Express 연습"/>
+```
+
+**HTML**
+```
+<h1>Express</h1>
+<p>Welcome to Express</p>
+<button class="title" type="submit">전송</button>
+<input placeholder="Express 연습"/>
+```
+
+넌적스에서 변수는 `{{ }}`로 감싼다.
+
+내부에서 변수를 사용할 수도 있다. 변수를 선언할 때는 `{% set [variable] = "[value]" %}`을 사용한다.
+
+**Nunjucks**
+```
+{% set node = "Node.js" %}
+{% set js = "Javascript" %}
+<p>{{node}}와 {{js}}</p>
+```
+
+**HTML**
+```
+<p>Node.js와 Javascript</p>
+```
+
+HTML을 이스케이프하고 싶지 않다면 `{{ [variable] | safe }}`를 사용한다.
+
+**Nunjucks**
+```
+<p>{{"<strong>이스케이프</strong>"}}</p>
+<p>{{"<strong>이스케이프하지 않음</strong>" | safe}}</p>
+```
+
+**HTML**
+```
+<p>&lt;strong&gt;이스케이프&lt;/strong&gt;</p>
+<p><strong>이스케이프하지 않음</strong></p>
+```
+
+
+#### 6.5.2.2 반복문
+
+넌적스에서는 특수한 문(statement)을 `{% %}` 안에 기술한다. 따라서 반복문도 해당 기호 안에 기술하면 된다. `for in`문과 `endfor`을 안에 기술하고 그 사이에 내용을 삽입한다.
+
+**Nunjucks**
+```
+<ul>
+  {% set fruits = ["사과", "배", "오렌지", "바나나", "복숭아"] %}
+  {% for item in fruits %}
+  <li>{{item}}</li>
+  {% endfor %}
+</ul>
+```
+
+**HTML**
+```
+<ul>
+  <li>사과</li>
+  <li>배</li>
+  <li>오렌지</li>
+  <li>바나나</li>
+  <li>복숭아</li>
+</ul>
+```
+
+반복문에서 인덱스를 사용하고 싶다면 `loop.index`라는 특수한 변수를 사용한다.
+
+**Nunjucks**
+```
+<ul>
+  {% set fruits = ["사과", "배", "오렌지", "바나나", "복숭아"] %}
+  {% for item in fruits %}
+  <li>{{loop.index}}번째 {{item}}</li>
+  {% endfor %}
+</ul>
+```
+
+**HTML**
+```
+<ul>
+  <li>1번째 사과</li>
+  <li>2번째 배</li>
+  <li>3번째 오렌지</li>
+  <li>4번째 바나나</li>
+  <li>5번째 복숭아</li>
+</ul>
+```
+
+
+#### 6.5.2.3 조건문
+
+조건문은 `{% if [variable] %}`, `{% elif %}`, `{% endif %}`로 이루어져 있다.
