@@ -1235,7 +1235,7 @@ else
 지원하지 않는다.
 ```
 
-`case`문도 가능하다.
+case문도 가능하다.
 
 **Pug**
 ```
@@ -1544,3 +1544,229 @@ HTML을 이스케이프하고 싶지 않다면 `{{ [variable] | safe }}`를 사�
 #### 6.5.2.3 조건문
 
 조건문은 `{% if [variable] %}`, `{% elif %}`, `{% endif %}`로 이루어져 있다.
+
+**Nunjucks**
+```
+{% if isLoggedIn %}
+<div>로그인 되었습니다.</div>
+{% else %}
+<div>로그인이 필요합니다.</div>
+{% endif %}
+```
+
+**HTML**
+```
+지원하지 않는다.
+```
+
+case문은 존재하지 않지만, `elif`을 통해 분기 처리할 수 있다.
+
+**Nunjucks**
+```
+{% if fruit === "apple" %}
+<p>사과입니다.</p>
+{% elif fruit === "banana" %}
+<p>바나나입니다.</p>
+{% elif fruit === "orange" %}
+<p>오렌지입니다.</p>
+{% else %}
+<p>사과도 바나나도 오렌지도 아닙니다.</p>
+{% endif %}
+```
+
+**HTML**
+```
+지원하지 않는다.
+```
+
+`{{ }}` 안에서는 다음과 같이 사용한다.
+
+**Nunjucks**
+```
+<div>{{"참" if isLoggedIn else "거짓"}}</div>
+```
+
+**HTML**
+```
+지원하지 않는다.
+```
+
+
+#### 6.5.2.4 include
+
+넌적스에서도 다른 HTML 파일을 삽입할 수 있다. `{% include [path] %}`와 같은 형태로 사용한다.
+
+**Nunjucks**
+
+- **header.html**
+```
+<header>
+  <a href="/">Home</a>
+  <a href="/about">About</a>
+</header>
+```
+- **footer.html**
+```
+<footer>
+  <div>푸터입니다.</div>
+</footer>
+```
+- **main.html**
+```
+{% include "header.html" %}
+<main>
+  <h1>메인 파일</h1>
+  <p>다른 파일을 include할 수 있습니다.</p>
+</main>
+{% include "footer.html" %}
+```
+
+**HTML**
+```
+<header>
+  <a href="/">Home</a>
+  <a href="/about">About</p>
+</header>
+<main>
+  <h1>메인 파일</h1>
+  <p>다른 파일을 include할 수 있습니다.</p>
+</main>
+<footer>
+  <div>푸터입니다.</div>
+</footer>
+```
+
+
+#### 6.5.2.5 extends와 block
+
+레이아웃이 될 파일에는 공통된 마크업을 넣으면서 페이지마다 달라지는 부분을 `block`으로 비워둔다.
+
+`block`은 `{% block [block name] %}`과 같이 선언할 수 있고, `{% endblock %}`으로 종료한다. `block`이 되는 파일에서는 `{% extends [path] %}`로 레이아웃 파일을 지정하고, 내용을 기술한다.
+
+**Nunjucks**
+
+- **layout.html**
+```
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>{{title}}</title>
+    <link rel="stylesheet" href="/style.css"/>
+    {% block style %}
+    {% endblock %}
+  </head>
+  <body>
+    <header>헤더입니다.</header>
+    {% block content %}
+    {% endblock %}
+    <footer>푸터입니다.</footer>
+    {% block script %}
+    {% endblock %}
+  </body>
+</html>
+```
+- **body.html**
+```
+{% extends "layout.html" %}
+
+{% block content %}
+<main>
+  <p>내용입니다.</p>
+</main>
+{% endblock %}
+
+{% block script %}
+<script src="/main.js"></script>
+{% endblock %}
+```
+
+**HTML**
+```
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Express</title>
+    <link rel="stylesheet" href="/style.css"/>
+  </head>
+  <body>
+    <header>헤더입니다.</header>
+    <main>
+      <p>내용입니다.</p>
+    </main>
+    <footer>푸터입니다.</footer>
+    <script src="/main.js"></script>
+  </body>
+</html>
+```
+
+이제 넌적스의 문법을 충분히 학습했으므로 `views` 디렉터리에 다음과 같은 파일을 생성한다.
+
+**layout.html**
+```
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>{{title}}</title>
+        <link rel="stylesheet" href="/style.css"/>
+    </head>
+    <body>
+        {% block content %}
+        {% endblock %}
+    </body>
+</html>
+```
+
+**index.html**
+```
+{% extends "layout.html" %}
+
+{% block content %}
+<h1>{{title}}</h1>
+<p>Welcome to {{title}}</p>
+{% endblock %}
+```
+
+**error.html**
+```
+{% extends "layout.html" %}
+
+{% block content %}
+<h1>{{message}}</h1>
+<h2>{{error.status}}</h2>
+<pre>{{error.stack}}</pre>
+{% endblock %}
+```
+
+
+### 6.5.3 에러 처리 미들웨어
+
+다음과 같이 에러 처리 미들웨어를 수정한다.
+
+**app.js**
+```
+...
+app.use((req, res, next) => {
+    const error = new Error(`${req.method} ${req.url} 라우터가 없습니다.`);
+    error.status = 404;
+    next(error);
+})
+
+app.use((err, req, res, next) => {
+    res.locals.message = err.message;
+    res.locals.error = process.env.NODE_ENN !== "production" ? err : {};
+    res.status(err.status || 500);
+    res.render("error");
+});
+...
+```
+
+![Alt text](image-12.png)
+
+에러 처리 미들웨어에서 `res.render("error")`와 같이 `error`라는 파일을 렌더링하고 있다. 현재 템플릿 파일을 넌적스로 설정했으므로 `error.html`을 렌더링할 것이다. 이때 `res.locals`에 설정한 값들을 함께 렌더링한다. 이처럼 `res.render`뿐만 아니라 `res.locals`로도 템플릿 엔진으로 변수를 전달할 수 있다.
+- - -
+
+
+## 6.6 함께 보면 좋은 자료
+
+생략
+- - -
