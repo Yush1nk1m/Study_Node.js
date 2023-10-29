@@ -733,3 +733,880 @@ MySQL에서는 `JOIN`이라는 기능으로 여러 테이블 간의 관계를 �
 
 
 #### 7.6.3.1 1:N
+
+시퀄라이즈에는 `hasMany`라는 메소드로 1:N 관계를 표현한다. `users` 테이블의 로우 **하나**를 불러올 때, 연결된 `comments`의 로우 **여러** 개를 같이 불러올 수 있다.
+
+반대로 `belongsTo` 메소드도 있다. 이는 `comments`의 로우 하나를 불러올 때 연결된 `users` 테이블의 로우 하나를 불러온다.
+
+이를 모델 각각의 `static associate` 메소드에 표시하면 된다.
+
+**models/user.js**
+```
+...
+static associate(db) {
+    db.User.hasMany(db.Comment, { foreignKey: "commenter", sourceKey: "id" });
+}
+```
+
+**models/comment.js**
+```
+static associate(db) {
+    db.Comment.belongsTo(db.User, { foreignKey: "commenter", targetKey: "id" });
+}
+```
+
+`associate` 메소드에서 `db`라는 매개변수를 사용하는 것은 순환 참조를 방지하기 위함이다. 만약 `Comment`와 `User` 객체를 불러오기 위해 각각의 코드에 `require` 문을 넣는다면 서로가 서로를 불러오는 순환 참조 현상이 일어난다. 이는 자바스크립트에서는 지양해야 하는 방식이다.
+
+`belongsTo`는 다른 모델의 정보가 들어가는 테이블의 `associate` 메소드에 사용하면 된다. 예제에서는 `Comment` 모델의 `commenter` 컬럼이 다른 모델(`User`)의 정보를 사용하고 있었으므로 해당 모델에 사용되었다.
+
+시퀄라이즈는 위에서 정의한 대로 모델 간의 관계를 파악해 `Comment` 모델에 `commenter` 컬럼을 외래 키로 추가한다. 그러면 이 외래 키 컬럼은 `User` 모델의 `id` 컬럼을 가리키고 있게 된다.
+
+`hasMany` 메소드에서는 `sourceKey` 속성에, `belongsTo` 메소드에서는 `targetKey` 속성에 각각 외래 키가 가리키는 키(`User.id`)를 명시하게 된다.
+
+`foreignKey` 속성을 따로 지정하지 않으면 이름이 `[모델 이름 + 기본 키]`인 컬럼이 해당 모델에 생성된다. 예제에서 `foreignKey` 속성을 제거하면 `UserId`라는 이름을 가진 컬럼이 `Comment` 모델에 추가될 것이다.
+
+이제 `npm start` 명령어로 서버를 실행하면 다음과 같이 시퀄라이즈가 스스로 SQL 문을 실행한다.
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter07\learn-sequelize> npm start
+
+> learn-sequelize@0.0.1 start
+> nodemon app
+
+[nodemon] 3.0.1
+[nodemon] to restart at any time, enter `rs`
+[nodemon] watching path(s): *.*
+[nodemon] watching extensions: js,mjs,cjs,json
+[nodemon] starting `node app.js`
+3001 번 포트에서 대기 중
+Executing (default): SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE' AND TABLE_NAME = 'users' AND TABLE_SCHEMA = 'nodejs'
+Executing (default): SHOW INDEX FROM `users` FROM `nodejs`
+Executing (default): SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE' AND TABLE_NAME = 'comments' AND TABLE_SCHEMA = 'nodejs'       
+Executing (default): SHOW INDEX FROM `comments` FROM `nodejs`
+데이터베이스 연결 성공
+```
+
+`IF NOT EXISTS` 옵션 덕분에 미리 데이터베이스에 테이블을 만들어 두어도 충돌되지 않는다.
+
+
+#### 7.6.3.2 1:1
+
+1:1 관계에서는 `hasMany` 메소드 대신 `hasOne` 메소드를 사용한다. 사용자의 정보를 담고 있는 가상의 `Info`라는 모델이 있다고 가정하면 다음과 같이 표현할 수 있다.
+
+```
+db.User.hasOne(db.Info, { foreignKey: "UserId", sourceKey: "id" });
+db.Info.belongsTo(db.User, { foreignKey: "UserId", targetKey: "id" });
+```
+
+1:1 관계에서도 `belongsTo`는 동일한 규칙으로 외래 키를 갖는 모델이 사용하는 것에 주의한다.
+
+
+#### 7.6.3.3 N:M
+
+시퀄라이즈에는 N:M 관계를 표현하기 위한 `belongsToMany` 메소드가 있다. 게시글 정보를 담고 있는 가상의 `Post` 모델과 해시태그 정보를 담고 있는 가상의 `Hashing` 모델이 있다고 가정하면 다음과 같이 표현할 수 있다.
+
+```
+db.Post.belongsToMany(db.Hashing, { through: "PostHashtag" });
+db.Hashing.belongsToMany(db.Post, { through: "PostHashtag" });
+```
+
+주의해야 할 점은 이전 관계들과 달리 N:M 관계에서는 양쪽 모델 모두 `belongsToMany` 메소드를 사용해야 한다는 것, 속성이 `through` 하나뿐이고 해당 속성에 명시한 것은 새로운 모델의 이름이 된다는 것이다.
+
+N:M 관계의 특성상 새로운 모델이 생성되어 두 모델 간의 관계를 나타내게 된다. `PostHashtag` 모델에는 게시글과 해시태그의 아이디가 각각 저장된다.
+
+이렇게 자동으로 만들어진 모델들은 다음과 같이 접근할 수 있다.
+
+```
+db.sequelize.models.PostHashtag
+```
+
+
+### 7.6.4 쿼리 알아보기
+
+시퀄라이즈로 CRUD 작업을 하기 위해선 시퀄라이즈 쿼리를 알아야 한다. SQL 문을 자바스크립트로 생성하는 것이기 때문에 시퀄라이즈만의 방식이 있다. 쿼리는 프로미스를 반환하므로 `then`을 붙여 결과를 받을 수 있다. 또한 `async/await` 문법과 같이 사용할 수도 있다.
+
+**로우 생성**
+- **SQL**
+```
+INSERT INTO nodejs.users (name, age, married, comment) VALUES ("Yushin", 22, 0, "안녕하세요.");
+```
+- **Sequelize**
+```
+const { User } = require("../models");
+
+User.create({
+    name: "Yushin",
+    age: 22,
+    married: false,
+    comment: "안녕하세요.",
+});
+```
+
+위와 같이 `models` 모듈에서 `User` 모델을 불러와 `create` 메소드를 사용하면 된다.
+
+주의할 점은 모델에 데이터를 삽입할 때 MySQL의 자료형이 아닌 시퀄라이즈 자료형에 맞춰 값을 전달해야 한다는 것이다. 때문에 `married` 속성의 값은 `0`이 아닌 `false`로 전달된다. 이렇게 전달하면 시퀄라이즈가 알아서 이를 MySQL 자료형으로 변환한다.
+
+**모든 로우 조회**
+- **SQL**
+```
+SELECT * FROM nodejs.users;
+```
+- **Sequelize**
+```
+const { User } = require("../models");
+
+User.findAll({});
+```
+
+**로우 하나만 조회**
+- **SQL**
+```
+SELECT * FROM nodejs.users LIMIT 1;
+```
+- **Sequelize**
+```
+const { User } = require("../models");
+
+User.findOne({});
+```
+
+**로우 조회 시 원하는 컬럼만 추출**
+- **SQL**
+```
+SELECT name, married FROM nodejs.users;
+```
+- **Sequelize**
+```
+const { User } = require("../models");
+
+User.findAll({
+    attributes: ["name", "married"],
+});
+```
+
+**Where 옵션을 사용한 조회**
+- **SQL**
+```
+SELECT name, age FROM nodejs.users WHERE married = 1 AND age > 30;
+```
+- **Sequelize**
+```
+const { User } = require("../models");
+
+User.findAll({
+    attributes: ["name", "age"],
+    where: {
+        married: true,
+        age: { [Op.gt]: 30 },
+    },
+});
+```
+
+MySQL에서는 `undefined`라는 자료형을 지원하지 않으므로 빈 값을 넣고자 한다면 `where` 옵션에는 `undefined` 대신 `null`을 넣어야 한다.
+
+시퀄라이즈는 자바스크립트 객체를 사용해 쿼리를 생성해야 하므로 `Op.gt` 같은 특수한 연산자들이 사용된다. `Sequelize` 객체 내부의 `Op` 객체를 불러와 사용한다.
+
+자주 쓰이는 연산자들은 다음과 같다.
+
+| 연산자 | 의미 |
+| :--: | :--: |
+| Op.gt | 초과 |
+| Op.gte | 이상 |
+| Op.lt | 미만 |
+| Op.lte | 이하 |
+| Op.ne | 같지 않음 |
+| Op.or | 또는 |
+| Op.in | 배열 요소 중 하나 |
+| Op.notIn | 배열 요소와 모두 다름 |
+
+**OR로 조건을 나열한 조회**
+- **SQL**
+```
+SELECT id, name FROM users WHERE married = 0 OR age > 30;
+```
+- **Sequelize**
+```
+const { Op } = require("sequelize");
+const { User } = require("../models");
+
+User.findAll({
+    attributes: ["id", "name"],
+    where: {
+        [Op.or]: [{ married: false }, { age: { [Op.gt]: 30 } }],
+    },
+});
+```
+
+`Op.or` 속성에 `OR` 연산을 적용할 쿼리들을 배열로 나열하면 된다.
+
+**정렬을 사용한 조회**
+- **SQL**
+```
+SELECT id, name FROM users ORDER BY age DESC;
+```
+- **Sequelize**
+```
+const { User } = require("../models");
+
+User.findAll({
+    attributes: ["id", "name"],
+    order: [["age", "DESC"]],
+});
+```
+
+`order` 속성으로 정렬할 수 있다. 이때 배열 안에 배열이 있는 것에 주의한다. 정렬은 컬럼 여러 개를 기준으로 할 수도 있기 때문에 배열 안에 다른 정렬 조건을 나열할 수도 있다.
+
+**로우 개수를 설정하여 조회**
+- **SQL**
+```
+SELECT id, name FROM users ORDER BY age DESC LIMIT 1;
+```
+- **Sequelize**
+```
+const { User } = require("../models");
+
+User.findAll({
+    attributes: ["id, "name"],
+    order: [["age", "DESC"]],
+    limit: 1,
+});
+```
+
+`limit` 속성으로 조회할 로우 개수를 제한할 수 있다. `LIMIT 1`인 경우엔 `findOne` 메소드를 대신 사용할 수도 있지만 `findAll` 메소드를 사용해서도 같은 결과를 구현할 수 있음에 유의한다.
+
+**OFFSET 옵션을 사용한 조회**
+- **SQL**
+```
+SELECT id, name FROM users ORDER BY age DESC LIMIT 1 OFFSET 1;
+```
+- **Sequelize**
+```
+const { User } = require("../models");
+
+User.findAll({
+    attributes: ["id", "name"],
+    order: [["age", "DESC"]],
+    limit: 1,
+    offset: 1,
+});
+```
+
+`offset` 속성으로 `limit`과 비슷하게 구현할 수 있다.
+
+**로우 수정**
+- **SQL**
+```
+UPDATE nodejs.users SET comment = "바꿀 내용" WHERE id = 2;
+```
+- **Sequelize**
+```
+const { User } = require("../models");
+
+User.update({
+    comment: "바꿀 내용",
+}, {
+    where: { id: 2 },
+});
+```
+
+`update` 메소드로 수정 연산을 할 수 있다. 첫 번째 인수로는 수정할 내용을, 두 번째 인수로는 `where` 속성을 사용하여 수정할 로우의 조건을 전달한다.
+
+**로우 삭제**
+- **SQL**
+```
+DELETE FROM nodejs.users WHERE id = 2;
+```
+- **Sequelize**
+```
+const { User } = require("../models");
+
+User.destroy({
+    where: { id: 2 },
+});
+```
+
+`destroy` 메소드로 삭제 연산을 할 수 있다. `where` 속성을 사용해 삭제할 로우의 조건을 전달한다.
+
+
+#### 7.6.4.1 관계 쿼리
+
+`findOne`이나 `findAll` 메소드를 호출할 때 프로미스의 결과로 모델을 반환한다. 이때, `findAll`은 조건에 해당하는 모든 결과를 찾으므로 모델의 배열을 반환한다.
+
+```
+const user = await User.findOne({});
+
+console.log(user.nick);     // 사용자 닉네임
+```
+
+위와 같이 `User` 모델의 정보에도 바로 접근할 수 있다.
+
+이 외에도 관계 쿼리라는 것이 있는데, MySQL의 JOIN 기능과 같은 것이다. 현재 `User` 모델은 `Comment` 모델과 `hasMany-belongsTo` 관계가 맺어져 있다. 그러므로 특정 사용자의 정보를 가져오면서 그 사용자의 댓글까지 모두 가져오고 싶다면 `include` 속성을 사용하면 된다.
+
+```
+const user = await User.findOne({
+    include: [{
+        model: Comment,
+    }]
+});
+
+console.log(user.Comments);     // 사용자 댓글
+```
+
+어떤 모델과 관계가 있는지를 `include` 속성에 배열로 전달하면 된다. 다양한 모델들과 관계가 있을 수 있기 때문에 배열의 형태이다. 댓글은 여러 개일 수 있으므로(`hasMany`) `user.Comments`로 접근 가능하다. 또는 다음과 같이 댓글에 접근할 수도 있다.
+
+```
+const user = await User.findOne({});
+const comments = await user.getComments();
+
+console.log(comments);      // 사용자 댓글
+```
+
+관계를 설정했다면 `getComments(조회)`, `setComments(수정)`, `addComment(하나 생성)`, `addComments(여러 개 생성)`, `removeComments(삭제)` 메소드가 지원된다. 동사 뒤에 모델의 이름이 붙는 형식이다.
+
+이렇게 자동으로 부여되는 모델의 이름을 바꾸고 싶다면 관계를 설정할 때 다음과 같이 `as` 옵션을 사용할 수 있다.
+
+```
+// 관계 설정할 때 as 옵션에 등록
+db.User.hasMany(db.Comment, { foreignKey: "commenter", sourceKey: "id", as: "Answers" });
+
+// 쿼리
+const user = await User.findOne({});
+const comments = await user.getAnswers();
+
+console.log(comments);      // 사용자 댓글
+```
+
+`as` 옵션을 설정하면 `include` 시 추가되는 댓글 객체도 `user.Answers`로 바뀐다.
+
+`include`나 관계 쿼리 메소드에도 다음과 같이 `where`이나 `attributes` 같은 옵션을 사용할 수 있다.
+
+```
+const user = await User.findOne({
+    include: [{
+        model: Comment,
+        where: {
+            id: 1,
+        },
+        attributes: ["id"],
+    }]
+});
+// 또는
+const comments = await user.getComments({
+    where: {
+        id: 1,
+    },
+    attributes: ["id"],
+});
+```
+
+위 예제에서는 댓글을 가져올 때 `id`가 1인 댓글만 가져오고, 컬럼도 `id`만 가져오도록 설정하였다. 관계 쿼리 시 조회는 위와 같이 할 수 있다.
+
+그러나 수정, 생성, 삭제 때는 조금 다르게 해야 한다.
+
+```
+const user = await User.findOne({});
+const comment = await Comment.create();
+
+await user.addComment(comment);
+// 또는
+await user.addComment(comment.id);
+```
+
+여러 개를 추가할 때는 배열로 추가할 수 있다.
+
+```
+const user = await User.findOne({});
+const comment1 = await Comment.create();
+const comment2 = await Comment.create();
+
+await user.addComment([comment1, comment2]);
+```
+
+관계 쿼리 메소드의 인수로 추가할 댓글 모델을 넣거나 댓글의 아이디를 넣으면 된다. 수정이나 삭제도 같은 방법으로 할 수 있다.
+
+
+#### 7.6.4.2 SQL 쿼리하기
+
+만약 시퀄라이즈의 쿼리를 사용하기 싫거나 어떻게 해야 할지 모르겠다면 SQL 쿼리를 다음과 같이 직접 전달하는 방법도 있다.
+
+```
+const [result, metadata] = await sequelize.query("SELECT * FROM comments");
+
+console.log(result);
+```
+
+위와 같이 `sequelize.query` 메소드를 사용하면 된다.
+
+
+### 7.6.5 쿼리 수행하기
+
+이 장에서는 쿼리로 CRUD 작업을 수행하는 예제를 살펴본다. 모델에서 데이터를 받아 페이지를 렌더링하는 방법, JSON 형식으로 데이터를 가져오는 방법 두 가지에 대한 예제를 진행한다.
+
+먼저, 간단하게 사용자 정보를 등록하고 사용자가 등록한 댓글을 가져오는 서버이다. 프로젝트 디렉터리에 `views` 디렉터리를 생성하고 그 안에 `sequelize.html` 파일과 `error.html` 파일을 생성한다. 4.2절의 `restFront.html`처럼 AJAX를 사용해 서버와 통신한다.
+
+**views/sequelize.html**
+```
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>시퀄라이즈 서버</title>
+    <style>
+        table { border: 1px solid black; border-collapse: collapse; }
+        table th, table td { border: 1px solid black; }
+    </style>
+</head>
+<body>
+    <div>
+        <form id="user-form">
+            <filedset>
+                <legend>사용자 등록</legend>
+                <div><input id="username" type="text" placeholder="이름"></div>
+                <div><input id="age" type="number" placeholder="나이"></div>
+                <div><input id="married" type="checkbox"><label for="married">결혼 여부</label></div>
+                <button type="submit">등록</button>
+            </filedset>
+        </form>
+    </div>
+    <br>
+    <table id="user-list">
+        <thead>
+            <tr>
+                <th>아이디</th>
+                <th>이름</th>
+                <th>나이</th>
+                <th>결혼 여부</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for user in users %}
+            <tr>
+                <td>{{user.id}}</td>
+                <td>{{user.name}}</td>
+                <td>{{user.age}}</td>
+                <td>{{ "기혼" if user.married else "미혼" }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <br>
+    <div>
+        <form id="comment-form">
+            <fieldset>
+                <legend>댓글 등록</legend>
+                <div><input id="userid" type="text" placeholder="사용자 아이디"></div>
+                <div><input id="comment" type="text" placeholder="댓글"></div>
+                <button type="submit">등록</button>
+            </fieldset>
+        </form>
+    </div>
+    <br>
+    <table id="comment-list">
+        <thead>
+            <tr>
+                <th>아이디</th>
+                <th>작성자</th>
+                <th>댓글</th>
+                <th>수정</th>
+                <th>삭제</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <script src="/sequelize.js"></script>
+</body>
+</html>
+```
+
+**views/error.html**
+```
+<h1>{{message}}</h1>
+<h2>{{error.status}}</h2>
+<pre>{{error.stack}}</pre>
+```
+
+`public` 디렉터리 안에 다음과 같이 `sequelize.js` 파일도 생성한다.
+
+**public/sequelize.js**
+```
+// 사용자 이름을 눌렀을 때 댓글 로딩
+document.querySelectorAll("#user-list tr").forEach((el) => {
+    el.addEventListener("click", function() {
+        const id = el.querySelector("td").textContent;
+        getComment(id);
+    });
+});
+
+// 사용자 로딩
+async function getUser() {
+    try {
+        const res = await axios.get("/users");
+        const users = res.data;
+        console.log(users);
+        const tbody = document.querySelector("#user-list tbody");
+        tbody.innerHTML = "";
+
+        users.map(function (user) {
+            const row = document.createElement("tr");
+            row.addEventListener("click", () => {
+                getComment(user.id);
+            });
+
+            // 로우 셀 추가
+            let td = document.createElement("td");
+            td.textContent = user.id;
+            row.appendChild(td);
+
+            td = document.createElement("td");
+            td.textContent = user.name;
+            row.appendChild(td);
+
+            td = document.createElement("td");
+            td.textContent = user.age;
+            row.appendChild(td);
+
+            td = document.createElement("td");
+            td.textContent = user.married ? "기혼" : "미혼";
+            row.appendChild(td);
+
+            tbody.appendChild(row);
+        });
+    } catch (err) {
+        console.error(err);
+    }
+}
+
+// 댓글 로딩
+async function getComment(id) {
+    try {
+        const res = await axios.get(`/users/${id}/comments`);
+        const comments = res.data;
+        const tbody = document.querySelector("#comment-list tbody");
+        tbody.innerHTML = "";
+
+        comments.map(function (comment) {
+            // 로우 셀 추가
+            const row = document.createElement("tr");
+            
+            let td = document.createElement("td");
+            td.textContent = comment.id;
+            row.appendChild(td);
+
+            td = document.createElement("td");
+            td.textContent = comment.User.name;
+            row.appendChild(td);
+
+            td = document.createElement("td");
+            td.textContent = comment.comment;
+            row.appendChild(td);
+
+            const edit = document.createElement("button");
+            edit.textContent = "수정";
+            edit.addEventListener("click", async () => {    // 수정 버튼 클릭 시
+                const newComment = prompt("바꿀 내용을 입력하세요.");
+                if (!newComment) {
+                    return alert("내용을 반드시 입력해야 합니다.");
+                }
+
+                try {
+                    await axios.patch(`/comments/${comment.id}`, { comment: newComment });
+                    getComment(id);
+                } catch (err) {
+                    console.error(err);
+                }
+            });
+            
+            const remove = document.createElement("button");
+            remove.textContent = "삭제";
+            remove.addEventListener("click", async () => {  // 삭제 버튼 클릭 시
+                try {
+                    axios.delete(`/comments/${comment.id}`);
+                    getComment(id);
+                } catch (err) {
+                    console.error(err);
+                }
+            });
+
+            // 버튼 추가
+            td = document.createElement("td");
+            td.appendChild(edit);
+            row.appendChild(td);
+
+            td = document.createElement("td");
+            td.appendChild(remove);
+            row.appendChild(td);
+
+            tbody.appendChild(row);
+        });
+    } catch (err) {
+        console.error(err);
+    }
+}
+
+// 사용자 등록 시
+document.getElementById("user-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+
+    const name = e.target.username.value;
+    const age = e.target.age.value;
+    const married = e.target.married.checked;
+
+    if (!name) {
+        return alert("이름을 입력하세요.");
+    }
+    
+    if (!age) {
+        return alert("나이를 입력하세요.");
+    }
+
+    try {
+        await axios.post("/users", { name, age, married });
+        getUser();
+    } catch (err) {
+        console.error(err);
+    }
+
+    e.target.username.value = "";
+    e.target.age.value = "";
+    e.target.married.checked = false;
+});
+
+// 댓글 등록 시
+document.getElementById("comment-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+
+    const id = e.target.userid.value;
+    const comment = e.target.comment.value;
+
+    if (!id) {
+        return alert("아이디를 입력하세요.");
+    }
+
+    if (!comment) {
+        return alert("댓글을 입력하세요.");
+    }
+
+    try {
+        await axios.post("/comments", { id, comment });
+        getComment(id);
+    } catch (err) {
+        console.error(err);
+    }
+
+    e.target.userid.value = "";
+    e.target.comment.value = "";
+});
+```
+
+`script` 태그에는 버튼들을 눌렀을 때 서버의 라우터로 AJAX 요청을 보내는 코드가 들어 있다.
+
+지금부터는 라우터를 만든다. `public/sequelize.js`에 나오는 `GET`, `POST`, `PUT`, `DELETE` 요청에 대응되는 라우터를 만들면 된다. `routes` 디렉터리를 생성하고 그 안에 `index.js`를 다음과 같이 작성한다.
+
+**routes/index.js**
+```
+const express = require("express");
+const User = require("../models/user");
+
+const router = express.Router();
+
+router.get("/", async (req, res, next) => {
+    try {
+        const users = await User.findAll();
+        res.render("sequelize", { users });
+    } catch (err) {
+        console.error(err);
+        next(err);
+    }
+});
+
+module.exports = router;
+```
+
+먼저 `GET /`로 요청을 보내올 때의 라우터이다. `User.findAll` 메소드로 모든 사용자를 찾은 후 `sequelize.html`을 렌더링할 때 결과인 `users`를 전달한다.
+
+이렇게 미리 데이터베이스에서 데이터를 조회한 후 템플릿 렌더링에 사용할 수 있다.
+
+다음은 `users.js`이다. `router.route` 메소드로 같은 라우트 경로는 하나로 묶었다.
+
+**routes/users.js**
+```
+const express = require("express");
+const User = require("../models/user");
+const Comment = require("../models/comment");
+
+const router = express.Router();
+
+router.route("/")
+    .get(async (req, res, next) => {
+        try {
+            const users = await User.findAll();
+            res.json(users);
+        } catch (err) {
+            console.error(err);
+            next(err);
+        }
+    })
+    .post(async (req, res, next) => {
+        try {
+            const user = await User.create({
+                name: req.body.name,
+                age: req.body.age,
+                married: req.body.married,
+            });
+
+            console.log(user);
+            res.status(201).json(user);
+        } catch (err) {
+            console.error(err);
+            next(err);
+        }
+    });
+
+router.get("/:id/comments", async (req, res, next) => {
+    try {
+        const comments = await Comment.findAll({
+            include: {
+                model: User,
+                where: { id: req.params.id },
+            },
+        });
+
+        console.log(comments);
+        res.json(comments);
+    } catch (err) {
+        console.error(err);
+        next(err);
+    }
+});
+
+module.exports = router;
+```
+
+`GET /users`와 `POST /users` 주소로 요청이 들어올 때의 라우터이다. 각각 사용자를 조회하는 요청과 사용자를 등록하는 요청을 처리한다. `GET /`에 대한 요청도 사용자 데이터를 조회하고 있지만, `GET /users`에 대한 요청에선 데이터가 JSON 형식으로 반환된다는 차이점이 있다.
+
+`GET /users/:id/comments` 라우터에는 `findAll` 메소드에 옵션이 추가되어 있다. `include` 속성에서 `model` 속성에는 `User` 모델을, `where` 속성에는 `:id`로 전달받은 아이디 값을 추가하였다. `:id`는 라우트 매개변수로 6.3절에 설명되어 있다. `req.params.id`로 그 값을 가져올 수 있다.
+
+만약 요청이 `GET /users/1/comments`라면 사용자 id가 1인 댓글을 불러온다. 조회된 댓글 객체에는 `include`로 넣어준 사용자 정보도 들어 있으므로 작성자의 이름이나 나이 등을 조회할 수도 있다.
+
+다음은 `comments.js`이다.
+
+**routes/comments.js**
+```
+const express = require("express");
+const { Comment } = require("../models");
+
+const router = express.Router();
+
+router.post("/", async (req, res, next) => {
+    try {
+        const comment = await Comment.create({
+            commenter: req.body.id,
+            comment: req.body.comment,
+        });
+
+        console.log(comment);
+        res.status(201).json(comment);
+    } catch (err) {
+        console.error(err);
+        next(err);
+    }
+});
+
+router.route("/:id")
+    .patch(async (req, res, next) => {
+        try {
+            const result = await Comment.update({
+                comment: req.body.comment,
+            }, {
+                where: { id: req.params.id },
+            });
+
+            res.json(result);
+        } catch (err) {
+            console.error(err);
+            next(err);
+        }
+    })
+    .delete(async (req, res, next) => {
+        try {
+            const result = await Comment.destroy({ where: { id: req.params.id } });
+        } catch (err) {
+            console.error(err);
+            next(err);
+        }
+    });
+
+module.exports = router;
+```
+
+댓글과 관련된 CRUD 작업을 하는 라우터이다. `POST /comments`, `PATCH /comments/:id`, `DELETE /comments/:id`를 등록하였다.
+
+`POST /comments`는 댓글 생성 요청이다. 라우터에서는 `commenter` 속성에 사용자 아이디를 전달하여 사용자와 댓글을 연결한다.
+
+`PATCH /comments/:id`와 `DELETE /comments/:id`는 각각 댓글 수정, 삭제 요청이다. 라우터에서는 각각 `update`, `destroy` 메소드로 요청한 수정, 삭제 작업을 수행한다.
+
+마지막으로 이렇게 만들어준 라우터들을 모두 `app.js`에 연결한다.
+
+**app.js**
+```
+const express = require("express");
+const path = require("path");
+const morgan = require("morgan");
+const nunjucks = require("nunjucks");
+
+const { sequelize } = require("./models");
+const indexRouter = require("./routes/");
+const usersRouter = require("./routes/users");
+const commentsRouter = require("./routes/comments");
+
+const app = express();
+app.set("port", process.env.PORT || 3001);
+app.set("view engine", "html");
+nunjucks.configure("views", {
+    express: app,
+    watch: true,
+});
+sequelize.sync({ force: false })
+    .then(() => {
+        console.log("데이터베이스 연결 성공");
+    })
+    .catch((err) => {
+        console.error(err);
+    });
+
+app.use(morgan("dev"));
+app.use(express.static(path.join(__dirname, "public")));
+app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
+
+app.use("/", indexRouter);
+app.use("/users", usersRouter);
+app.use("/comments", commentsRouter);
+
+app.use((req, res, next) => {
+    const error = new Error(`${req.method} ${req.url} 라우터가 없습니다.`);
+    error.status = 404;
+    next(error);
+});
+
+app.use((err, req, res, next) => {
+    res.locals.message = err.message;
+    res.locals.error = process.env.NODE_ENV !== "production" ? err : {};
+    res.status(err.status || 500);
+    res.render("error");
+});
+
+app.listen(app.get("port"), () => {
+    console.log(app.get("port"), "번 포트에서 대기 중");
+});
+```
+
+이제 `npm start`로 서버를 실행하고 `http://localhost:3001`로 접속하면 사용자 동작에 따라 시퀄라이즈가 수행하는 SQL 문을 확인할 수 있다.
+- - -
+
+
+## 7.7 함께 보면 좋은 자료
+
+생략
