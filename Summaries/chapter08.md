@@ -508,3 +508,525 @@ module.exports = mongoose.model("User", userSchema);
 `name` 필드의 자료형은 `String`이고 필수이며 고유한 값이어야 한다. `age` 필드의 자료형은 `Number`이고 필수이다. `married` 필드의 자료형은 `Boolean`이고 필수이다. `comment` 필드의 자료형은 `String`이다. `required` 또는 `default` 등의 옵션이 필요하지 않다면 간단히 자료형만 명시하면 된다. `createdAt` 필드의 자료형은 `Date`이고 기본값은 `Date.now`(데이터 생성 당시의 시간)이다.
 
 마지막은 몽구스의 `model` 메소드로 스키마와 몽고디비 컬렉션을 연결하는 모델을 생성한다.
+
+**schemas/mongoose.js**
+```
+const mongoose = require("mongoose");
+
+const { Schema } = mongoose;
+const { Types: { ObjectId } } = Schema;
+
+const commentSchema = new Schema({
+    commenter: {
+        type: ObjectId,
+        required: true,
+        ref: "User",
+    },
+
+    comment: {
+        type: String,
+        required: true,
+    },
+
+    createdAt: {
+        type: Date,
+        default: Date.now,
+    },
+});
+
+module.exports = mongoose.model("Comment", commentSchema);
+```
+
+`commenter` 속성의 자료형이 `ObjectId`인 것에 주목한다. 옵션으로는 `ref` 속성의 값이 `User`로 주어져 있다. 이는 `commenter` 필드에 `User` 스키마의 `ObjectId`가 들어간다는 의미이다. 나중에 몽구스가 JOIN과 비슷한 연산을 할 때 사용된다.
+
+몽구스는 `model` 메소드의 첫 번째 인수로 컬렉션 이름을 만든다. 위 예제들에서는 첫 번째 인수가 `User`, `Comment`로 주어져 있는데, 첫 글자를 소문자로 만들고 복수형으로 변환해 각각 `users`, `comments` 컬렉션을 생성하는 것이다. 이러한 강제 개명이 싫다면 세 번째 인수로 컬렉션 이름을 지정할 수 있다.
+
+
+### 8.6.3 쿼리 수행하기
+
+이 절에서는 7.6.4절과 같이 몽구스를 사용해 쿼리를 수행하는 예제를 살펴본다.
+
+`views` 디렉터리 안에 다음과 같이 `mongoose.html`과 `error.html` 파일을 생성한다.
+
+**views/mongoose.html**
+```
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>몽구스 서버</title>
+    <style>
+        table { border: 1px solid black; border-collapse: collapse; }
+        table th, table td { border: 1px solid black; }
+    </style>
+</head>
+<body>
+    <div>
+        <form id="user-form">
+            <fieldset>
+                <legend>사용자 등록</legend>
+                <div><input id="username" type="text" placeholder="이름"></div>
+                <div><input id="age" type="number" placeholder="나이"></div>
+                <div><input id="married" type="checkbox"><label for="married">결혼 여부</label></div>
+                <button type="submit">등록</button>
+            </fieldset>
+        </form>
+    </div>
+    <br>
+    <table id="user-list">
+        <thead>
+            <tr>
+                <th>아이디</th>
+                <th>이름</th>
+                <th>나이</th>
+                <th>결혼 여부</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for user in users %}
+            <tr>
+                <td>{{user.id}}</td>
+                <td>{{user.name}}</td>
+                <td>{{user.age}}</td>
+                <td>{{ "기혼" if user.married else "미혼" }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <br>
+    <div>
+        <form id="comment-form">
+            <filedset>
+                <legend>댓글 등록</legend>
+                <div><input id="userid" type="text" placeholder="사용자 아이디"></div>
+                <div><input id="comment" type="text" placeholder="댓글"></div>
+                <button type="submit">등록</button>
+            </filedset>
+        </form>
+    </div>
+    <br>
+    <table id="comment-list">
+        <thead>
+            <tr>
+                <th>아이디</th>
+                <th>작성자</th>
+                <th>댓글</th>
+                <th>수정</th>
+                <th>삭제</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <script src="/mongoose.js"></script>
+</body>
+</html>
+```
+
+**views/error.html**
+```
+<h1>{{message}}</h1>
+<h2>{{error.status}}</h2>
+<pre>{{error.stack}}</pre>
+```
+
+다음으로는 `public` 디렉터리 안에 `mongoose.js` 파일을 생성한다. 7.6.4절의 `public/sequelize.js`와는 구조가 조금 다르므로 유의한다.
+
+**public/mongoose.js**
+```
+// 사용자 이름을 눌렀을 때 댓글 로딩
+document.querySelectorAll("#user-list tr").forEach((el) => {
+    el.addEventListener("click", function () {
+        const id = el.querySelector("td").textContent;
+        getComment(id);
+    });
+});
+
+// 사용자 로딩
+async function getUser() {
+    try {
+        const res = await axios.get("/users");
+        const users = res.data;
+
+        console.log(users);
+
+        const tbody = document.querySelector("#user-list tbody");
+        tbody.innerHTML = "";
+
+        users.map(function (user) {
+            const row = document.createElement("tr");
+            row.addEventListener("click", () => {
+                getComment(user._id);
+            });
+
+            // 로우 셀 추가
+            let td = document.createElement("td");
+            td.textContent = user._id;
+            row.appendChild(td);
+
+            td = document.createElement("td");
+            td.textContent = user.name;
+            row.appendChild(td);
+
+            td = document.createElement("td");
+            td.textContent = user.age;
+            row.appendChild(td);
+
+            td = document.createElement("td");
+            td.textContent = user.married ? "기혼" : "미혼";
+            row.appendChild(td);
+
+            tbody.appendChild(row);
+        });
+    } catch (err) {
+        console.error(err);
+    }
+}
+
+// 댓글 로딩
+async function getComment(id) {
+    try {
+        const res = await axios.get(`/users/${id}/comments`);
+        const comments = res.data;
+        
+        const tbody = document.querySelector("#comment-list tbody");
+        tbody.innerHTML = "";
+
+        comments.map(function (comment) {
+            // 로우 셀 추가
+            const row = document.createElement("tr");
+            
+            let td = document.createElement("td");
+            td.textContent = comment._id;
+            row.appendChild(td);
+
+            td = document.createElement("td");
+            td.textContent = comment.commenter.name;
+            row.appendChild(td);
+            
+            td = document.createElement("td");
+            td.textContent = comment.comment;
+            row.appendChild(td);
+
+            const edit = document.createElement("button");
+            edit.textContent = "수정";
+            edit.addEventListener("click", async () => {    // 수정 클릭 시
+                const newComment = prompt("바꿀 내용을 입력하세요.");
+                if (!newComment) {
+                    return alert("내용을 반드시 입력해야 합니다.");
+                }
+
+                try {
+                    await axios.patch(`/comments/${comment._id}`, { comment: newComment });
+                    getComment(id);
+                } catch (err) {
+                    console.error(err);
+                }
+            });
+
+            const remove = document.createElement("button");
+            remove.textContent = "삭제";
+            remove.addEventListener("click", async () => {      // 삭제 클릭 시
+                try {
+                    await axios.delete(`/comments/${comment._id}`);
+                    getComment(id);
+                } catch (err) {
+                    console.error(err);
+                }
+            });
+
+            // 버튼 추가
+            td = document.createElement("td");
+            td.appendChild(edit);
+            row.appendChild(td);
+
+            td = document.createElement("td");
+            td.appendChild(remove);
+            row.appendChild(td);
+
+            tbody.appendChild(row);
+        });
+    } catch (err) {
+        console.error(err);
+    }
+}
+
+// 사용자 등록 시
+document.getElementById("user-form").addEventListener("submit", async (e) => {
+    console.log("TEST");
+    e.preventDefault();
+
+    const name = e.target.username.value;
+    const age = e.target.age.value;
+    const married = e.target.married.checked;
+
+    if (!name) {
+        return alert("이름을 입력하세요.");
+    }
+
+    if (!age) {
+        return alert("나이를 입력하세요.");
+    }
+
+    try {
+        await axios.post("/users", { name, age, married });
+        getUser();
+    } catch (err) {
+        console.error(err);
+    }
+
+    e.target.username.value = "";
+    e.target.age.value = "";
+    e.target.married.checked = false;
+});
+
+// 댓글 등록 시
+document.getElementById("comment-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+
+    const id = e.target.userid.value;
+    const comment = e.target.comment.value;
+
+    if (!id) {
+        return alert("아이디를 입력하세요.");
+    }
+
+    if (!comment) {
+        return alert("댓글을 입력하세요.");
+    }
+
+    try {
+        await axios.post("/comments", { id, comment });
+        getComment(id);
+    } catch (err) {
+        console.error(err);
+    }
+
+    e.target.userid.value = "";
+    e.target.comment.value = "";
+});
+```
+
+이제 라우터를 작성한다.
+
+**routes/index.js**
+```
+const express = require("express");
+const User = require("../schemas/user");
+
+const router = express.Router();
+
+router.get("/", async (req, res, next) => {
+    try {
+        const users = await User.find({});
+        res.render("mongoose", { users });
+    } catch (err) {
+        console.error(err);
+        next(err);
+    }
+});
+
+module.exports = router;
+```
+
+`GET /`로 접속했을 때의 라우터이다. `User.find({})` 메소드로 모든 사용자를 찾은 뒤 `mongoose.html`을 렌더링할 때 사용할 수 있도록 `users` 변수로 전달한다. `find` 메소드는 `User` 스키마를 `require`한 뒤 사용할 수 있다. 몽고디비의 `db.users.find({})` 쿼리와 같다.
+
+몽구스도 기본적으로 프로미스를 지원하므로 `async/await`과 `try/catch` 문을 사용해서 각각 조회 성공 시와 실패 시의 정보를 얻을 수 있다. 이렇게 미리 데이터베이스에서 데이터를 조회한 후 템플릿 렌더링에 사용할 수 있다.
+
+다음은 `users.js`이다.
+
+**routes/users.js**
+```
+const express = require("express");
+const User = require("../schemas/user");
+const Comment = require("../schemas/comment");
+
+const router = express.Router();
+
+router.route("/")
+    .get(async (req, res, next) => {
+        try {
+            const users = await User.find({});
+            res.json(users);
+        } catch (err) {
+            console.error(err);
+            next(err);
+        }
+    })
+    .post(async (req, res, next) => {
+        try {
+            const user = await User.create({
+                name: req.body.name,
+                age: req.body.age,
+                married: req.body.married,
+            });
+
+            console.log(user);
+            
+            res.status(201).json(user);
+        } catch (err) {
+            console.error(err);
+            next(err);
+        }
+    });
+
+router.get("/:id/comments", async (req, res, next) => {
+    try {
+        const comments = await Comment.find({ commenter: req.params.id })
+            .populate("commenter");
+
+        console.log(comments);
+
+        res.json(comments);
+    } catch (err) {
+        console.error(err);
+        next(err);
+    }
+});
+
+module.exports = router;
+```
+
+`GET /users`와 `POST /users` 주소로 요청이 들어올 때의 라우터이다. 각각 사용자를 조회하는 요청과 등록하는 요청을 처리한다. `GET /`에서도 사용자 데이터를 조회했지만 `GET /users`에서는 데이터를 JSON 형식으로 반환한다는 점에서 차이가 있다.
+
+사용자를 등록할 때는 먼저 모델의 `create` 메소드로 저장한다. 몽고디비와 메소드가 다르므로 몽구스용 메소드를 따로 외워야 한다. 정의한 스키마에 부합하지 않는 데이터를 삽입할 시 몽구스가 에러를 발생시킨다. `_id`는 자동으로 생성된다.
+
+`GET /users/:id/comments` 라우터는 댓글 다큐먼트를 조회하는 라우터이다. `find` 메소드에는 옵션이 추가되어 있다. 댓글을 쓴 사용자의 아이디로 댓글을 조회한 뒤 `populate` 메소드로 관련 있는 컬렉션의 다큐먼트를 불러올 수 있다. `Comment` 스키마 정의에서 `commenter` 필드의 `ref`가 `User`로 되어 있으므로, 자동으로 `users` 컬렉션에서 사용자 다큐먼트를 찾아 합친다. `commenter` 필드가 사용자 다큐먼트로 치환된다. 이제 `commenter` 필드는 하나의 다큐먼트로 치환된다. 따라서 응답을 받은 사용자는 `comment.commenter.name`처럼 마치 `commenter` 필드를 다큐먼트를 취급하듯이 조회하게 된다.
+
+**routes/comments.js**
+```
+const express = require("express");
+const Comment = require("../schemas/comment");
+
+const router = express.Router();
+
+router.post("/", async (req, res, next) => {
+    try {
+        const comment = await Comment.create({
+            commenter: req.body.id,
+            comment: req.body.comment,
+        });
+
+        console.log(comment);
+
+        const result = await Comment.populate(comment, { path: "commenter" });
+
+        res.status(201).json(result);
+    } catch (err) {
+        console.error(err);
+        next(err);
+    }
+});
+
+router.route("/:id")
+    .patch(async (req, res, next) => {
+        try {
+            const result = await Comment.updateOne({
+                _id: req.params.id,
+            }, {
+                comment: req.body.comment,
+            });
+            
+            res.json(result);
+        } catch (err) {
+            console.error(err);
+            next(err);
+        }
+    })
+    .delete(async (req, res, next) => {
+        try {
+            const result = await Comment.deleteOne({ id: req.params.id });
+            
+            res.json(result);
+        } catch (err) {
+            console.error(err);
+            next(err);
+        }
+    });
+
+module.exports = router;
+```
+
+댓글과 관련된 CRUD 작업을 하는 라우터로, `POST /comments`, `PATCH /comments/:id`, `DELETE /comments/:id`를 등록했다.
+
+`POST /comments`는 다큐먼트를 등록하는 라우터이다. `Comment.create` 메소드로 댓글을 저장한다. 그 후 `populate` 메소드로 프로미스의 결과로 반환된 `comment` 객체에 다른 컬렉션 다큐먼트를 불러온다. 이때 `path` 속성에 어떤 필드를 합칠지 설정할 수 있다. 이렇게 합쳐진 결과를 클라이언트에게 응답한다.
+
+`PATCH /comments/:id` 라우터는 다큐먼트를 수정하는 라우터이다. 수정에는 `updateOne` 메소드를 사용한다. `updateOne` 메소드의 첫 번째 인수로는 어떤 다큐먼트를 수정할 것인지를 나타낸 쿼리 객체를 전달하고, 두 번째 인수로는 수정할 필드와 값이 들어 있는 객체를 전달한다. 시퀄라이즈와 인수의 순서가 반대이다. 몽고디비와는 다르게 `$set` 연산자를 사용하지 않아도 지정한 필드만 변경한다.
+
+`DELETE /comments/:id`는 다큐먼트를 삭제하는 라우터이다. `deleteOne` 메소드를 사용해 삭제한다. `deleteOne` 메소드의 첫 번째 인수로는 삭제할 다큐먼트에 대한 조건을 전달하면 된다.
+
+마지막으로는 이제까지 작성한 라우터들을 연결한다.
+
+**app.js**
+```
+const express = require("express");
+const path = require("path");
+const morgan = require("morgan");
+const nunjucks = require("nunjucks");
+
+const connect = require("./schemas");
+const indexRouter = require("./routes");
+const usersRouter = require("./routes/users");
+const commentsRouter = require("./routes/comments");
+
+const app = express();
+
+app.set("port", process.env.PORT || 3002);
+app.set("view engine", "html");
+nunjucks.configure("views", {
+    express: app,
+    watch: true,
+});
+
+connect();
+
+app.use(morgan("dev"));
+app.use(express.static(path.join(__dirname, "public")));
+app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
+
+app.use("/", indexRouter);
+app.use("/users", usersRouter);
+app.use("/comments", commentsRouter);
+
+app.use((req, res, next) => {
+    const error = new Error(`${req.method} ${req.url} 라우터가 없습니다.`);
+    error.status = 404;
+    next(error);
+})
+
+app.use((err, req, res, next) => {
+    res.locals.message = err.message;
+    res.locals.error = process.env.NODE_ENV !== "production" ? err : {};
+    res.status(err.status || 500);
+    res.render("error");
+});
+
+app.listen(app.get("port"), () => {
+    console.log(app.get("port"), "번 포트에서 대기 중");
+});
+```
+
+이제 `npm start`로 웹 서버를 실행해 본다.
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter08\learn-mongoose> npm start
+
+> learn-mongoose@0.0.1 start
+> nodemon app
+
+[nodemon] 3.0.1
+[nodemon] to restart at any time, enter `rs`
+[nodemon] watching path(s): *.*
+[nodemon] watching extensions: js,mjs,cjs,json
+[nodemon] starting `node app.js`
+3002 번 포트에서 대기 중
+```
+- - -
+
+
+## 8.7 함꼐 보면 좋은 자료
+
+생략
+- - -
