@@ -269,5 +269,509 @@ exports.renderMain = (req, res) => {
 
 **views/main.html**
 ```
+{% extends "layout.html" %}
 
+{% block content %}
+<div class="timeline">
+    {% if user %}
+    <div>
+        <form id="twit-form" action="/post" method="post" enctype="multipart/form-data">
+            <div class="input-group">
+                <textarea id="twit" name="content" maxlength="140"></textarea>
+            </div>
+            <div class="img-preview">
+                <img id="img-preview" src="" style="display: none;" width="250" alt="미리 보기">
+                <input id="img-url" type="hidden" name="url">
+            </div>
+            <div>
+                <label id="img-label" for="img">사진 업로드</label>
+                <input id="img" type="file" accept="image/*">
+                <button id="twit-btn" type="submit" class="btn">짹짹</button>
+            </div>
+        </form>
+    </div>
+    {% endif %}
+    <div class="twits">
+        <form id="hashtag-form" action="/hashtag">
+            <input type="text" name="hashtag" placeholder="태그 검색">
+            <button class="btn">검색</button>
+        </form>
+        {% for twit in twits %}
+        <div class="twit">
+            <input type="hidden" value="{{twit.User.id}}" class="twit-user-id">
+            <input type="hidden" value="{{twit.id}}" class="twit-id">
+            <div class="twit-author">{{twit.User.nick}}</div>
+            {% if not followingIdList.includes(twit.User.id) and twit.User.id !== user.id %}
+            <button class="twit-follow">팔로우하기</button>
+            {% endif %}
+            <div class="twit-content">{{twit.content}}</div>
+            {% if twit.img %}
+            <div class="twit-img"><img src="{{twit.img}}" alt="썸네일"></div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}
+
+{% block script %}
+<script>
+    if (document.getElementById("img")) {
+        document.getElementById("img").addEventListener("change", function (e) {
+            const formData = new FormData();
+            console.log(this, this.files);
+            formData.append("img", this.files[0]);
+            axios.post("/post/img", formData)
+                .then((res) => {
+                    document.getElementById("img-url").value = res.data.url;
+                    document.getElementById("img-preview").src = res.data.url;
+                    document.getElementById("img-preview").style.display = "inline";
+                })
+                .catch((err) => {
+                    console.error(err);
+                });
+        });
+    }
+
+    document.querySelectorAll(".twit-follow").forEach(function (tag) {
+        tag.addEventListener("click", function () {
+            const myId = document.querySelector("#my-id");
+            if (myId) {
+                const userId = tag.parentNode.querySelector(".twit-user-id").value;
+                if (userId !== myId.value) {
+                    if (confirm("팔로잉하시겠습니까?")) {
+                        axios.post(`/user/${userid}/follow`)
+                            .then(() => {
+                                location.reload();
+                            })
+                            .catch((err) => {
+                                console.error(err);
+                            });
+                    }
+                }
+            }
+        });
+    });
+</script>
+{% endblock %}
+```
+
+`main.html`에서는 `user` 변수가 존재할 때 게시글 업로드 폼을 보여준다. for 문도 추가되었으며, 렌더링 시 `twits` 배열 안의 요소들을 읽어 게시글로 만든다.
+
+`if not followingIdList.includes(twit.User.id) and twit.User.id !== user.id`는 나의 팔로잉 아이디 목록에 게시글 작성자의 아이디가 없거나 내 게시글이 아니면 팔로우 버튼을 보여주기 위한 조건이다.
+
+**views/profile.html**
+```
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="timeline">
+    <div class="followings half">
+        <h2>팔로잉 목록</h2>
+        {% if user.Followings %}
+            {% for following in user.Followings %}
+            <div>{{following.nick}}</div>
+            {% endfor %}
+        {% endif %}
+    </div>
+    <div class="followers half">
+        <h2>팔로워 목록</h2>
+        {% if user.Followers %}
+            {% for follower in user.Followers %}
+            <div>{{follower.nick}}</div>
+            {% endfor %}
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+```
+
+`profile.html`은 사용자의 팔로워와 사용자가 팔로잉 중인 목록을 보여준다.
+
+**views/join.html**
+```
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="timeline">
+    <form id="join-form" action="/auth/join" method="post">
+        <div class="input-group">
+            <label for="join-email">이메일</label>
+            <input id="join-email" type="email" name="email">
+        </div>
+        <div class="input-group">
+            <label for="join-nick">닉네임</label>
+            <input id="join-nick" type="text" name="nick">
+        </div>
+        <div class="input-group">
+            <label for="join-password">비밀번호</label>
+            <input id="join-password" type="password" name="password">
+        </div>
+        <button id="join-btn" type="submit" class="btn">회원 가입</button>
+    </form>
+</div>
+{% endblock %}
+
+{% block script %}
+<script>
+    window.onload = () => {
+        if (new URL(location.href).searchParams.get("error")) {
+            alert("이미 존재하는 이메일입니다.");
+        }
+    };
+</script>
+{% endblock %}
+```
+
+`join.html`은 회원 가입 폼을 보여준다.
+
+**views/error.html**
+```
+{% extends "layout.html" %}
+
+{% block content %}
+<h1>{{message}}</h1>
+<h2>{{error.status}}</h2>
+<pre>{{error.stack}}</pre>
+{% endblock %}
+```
+
+`error.html`은 서버에 에러가 발생했을 때 에러 내역을 보여준다. 배포 시에는 에러 내용을 보여주지 않는 것이 보안상 좋다.
+
+마지막으로 디자인을 위한 CSS 파일을 다음과 같이 작성한다.
+
+**public/main.css**
+```
+* { box-sizing: border-box; }
+
+html, body { margin: 0; padding: 0; height: 100%; }
+.btn {
+    display:inline-block;
+    padding: 0 5px;
+    text-decoration: none;
+    cursor: pointer;
+    border-radius: 4px;
+    background: white;
+    border: 1px solid silver;
+    color: crimson;
+    height: 37px;
+    line-height: 37px;
+    vertical-align: top;
+    font-size: 12px;
+}
+
+input[type="text"], input[type="email"], input[type="password"], textarea {
+    border-radius: 4px;
+    height: 37px;
+    padding: 10px;
+    border: 1px solid silver;
+}
+
+.container { width: 100%; height: 100%; }
+@media screen and (min-width: 800px) {
+    .container { width: 800px; margin: 0 auto;}
+}
+
+.input-group { margin-bottom: 15px; }
+.input-group label { width: 25%; display: inline-block; }
+.input-group input { width: 70%; }
+
+.half { float: left; width: 50%; margin: 10px 0; }
+
+#join { float: right; }
+
+.profile-wrap {
+    width: 100%;
+    display: inline-block;
+    vertical-align: top;
+    margin: 10px 0;
+}
+@media screen and (min-width: 800px) {
+    profile-wrap { width: 290px; margin-bottom: 0; }
+}
+.profile {
+    text-align: left;
+    padding: 10px;
+    margin-right: 10px;
+    border-radius: 4px;
+    border: 1px solid silver;
+    background: lightcoral;
+}
+
+.user-name { font-weight: bold; font-size: 18px; }
+
+.count { font-weight: bold; color: crimson; font-size: 18px; }
+
+.timeline {
+    margin-top: 10px;
+    width: 100%;
+    display: inline-block;
+    border-radius: 4px;
+    vertical-align: top;
+}
+@media screen and (min-width: 800px) { .timeline { width: 500px; } }
+
+#twit-form {
+    border-bottom: 1px solid silver;
+    padding: 10px;
+    background: lightcoral;
+    overflow: hidden;
+}
+
+#img-preview { max-width: 100%; }
+#img-label {
+    float: left;
+    cursor: pointer;
+    border-radius: 4px;
+    border: 1px solid crimson;
+    padding: 0 10px;
+    color: white;
+    font-size: 12px;
+    height: 37px;
+    line-height: 37px;
+}
+#img { display: none; }
+
+#twit { width: 100%; min-height: 72px; }
+#twit-btn {
+    float: right;
+    color: white;
+    background: crimson;
+    border: none;
+}
+.twit {
+    border: 1px solid silver;
+    border-radius: 4px;
+    padding: 10px;
+    position: relative;
+    margin-bottom: 10px;
+}
+.twit-author { display: inline-block; font-weight: bold; margin-right: 10px; }
+.twit-follow {
+    padding: 1px 5px;
+    background: #fff;
+    border: 1px solid silver;
+    border-radius: 5px;
+    color: crimson;
+    font-size: 12px;
+    cursor: pointer;
+}
+.twit-img { text-align: cetner; }
+.twit-img img { max-width: 75%; }
+
+.error-message { color: red; font-weight: bold; }
+
+#search-form { text-align: right; }
+#join-form { padding: 10px; text-align: center; }
+#hashtag-form { text-align: right; }
+
+footer { text-align: center; }
+```
+- - -
+
+
+## 9.2 데이터베이스 세팅하기
+
+MySQL과 시퀄라이즈로 데이터베이스를 설정한다.
+
+이제까지 작성한 코드로 미루어 보아 기본적으로 사용자 테이블과 게시글 테이블이 필요하다.
+
+우선 `models` 디렉터리 안에 다음과 같이 `user.js`, `post.js`, `hashtag.js`를 생성한다.
+
+**models/user.js**
+```
+const Sequelize = require("sequelize");
+
+class User extends Sequelize.Model {
+    static initiate(sequelize) {
+        User.init({
+            email: {
+                type: Sequelize.STRING(40),
+                allowNull: true,
+                unique: true,
+            },
+            
+            nick: {
+                type: Sequelize.STRING(15),
+                allowNull: false,
+            },
+
+            password: {
+                type: Sequelize.STRING(100),
+                allowNull: true,
+            },
+
+            provider: {
+                type: Sequelize.ENUM("local", "kakao"),
+                allowNull: false,
+                defaultValue: "local",
+            },
+
+            snsId: {
+                type: Sequelize.STRING(30),
+                allowNull: true,
+            },
+        }, {
+            sequelize,
+            timestamps: true,
+            underscored: false,
+            modelName: "User",
+            tableName: "users",
+            paranoid: true,
+            charset: "utf8",
+            coolate: "utf8_general_ci",
+        });
+    }
+
+    static associate(db) {}
+};
+
+module.exports = User;
+```
+
+`user.js`는 사용자 정보를 저장하는 모델이다. `email`, `nick`, `password`를 저장하고, SNS 로그인 시에는 `provider`와 `snsId`를 저장한다. `provider` 컬럼은 `ENUM` 자료형으로 지정되어 있는데, 이는 넣을 수 있는 값을 제한할 수 있는 열거형이다. 종류로는 이메일/비밀번호로 로그인(`local`)과 카카오 로그인(`kakao`) 두 가지가 있다. 기본적으로 `local`로 가정하였다.
+
+테이블 옵션으로는 `timestamps`와 `paranoid`가 설정되었으므로 `createdAt`, `updatedAt`, `deletedAt` 컬럼도 생성된다.
+
+**models/post.js**
+```
+const Sequelize = require("sequelize");
+
+class Post extends Sequelize.Model {
+    static initiate(sequelize) {
+        Post.init({
+            content: {
+                type: Sequelize.STRING(140),
+                allowNull: false,
+            },
+
+            img: {
+                type: Sequelize.STRING(200),
+                allowNull: true,
+            },
+        }, {
+            sequelize,
+            timestamps: true,
+            underscored: false,
+            modelName: "Post",
+            tableName: "posts",
+            paranoid: false,
+            charset: "utf8mb4",
+            collate: "utf8mb4_general_ci",
+        });
+    }
+
+    static associate(db) {}
+}
+
+module.exports = Post;
+```
+
+게시글 모델은 게시글 내용(`content`)과 이미지 경로(`img`)를 저장한다. 게시글 등록자의 아이디를 담은 컬럼은 나중에 관계 설정 시 시퀄라이즈가 알아서 생성한다.
+
+**models/hashtag.js**
+```
+const Sequelize = require("sequelize");
+
+class Hashtag extends Sequelize.Model {
+    static initiate(sequelize) {
+        Hashtag.init({
+            title: {
+                type: Sequelize.STRING(15),
+                allowNull: false,
+                unique: true,
+            },
+        }, {
+            sequelize,
+            timestamps: true,
+            underscored: false,
+            modelName: "Hashtag",
+            tableName: "hashtags",
+            paranoid: false,
+            charset: "utf8mb4",
+            coolate: "utf8mb4_general_ci",
+        });
+    }
+
+    static associate(db) {}
+};
+
+module.exports = Hashtag;
+```
+
+해시태그 모델은 태그 이름(`title`)을 저장한다. 나중에 태그로 게시글을 검색하기 위해서 모델을 따로 정의하였다.
+
+이제 생성한 모델들을 시퀄라이즈에 등록한다. `models/index.js`에는 시퀄라이즈가 자동으로 생성한 코드들이 들어 있다. 내용을 모두 지운 뒤 다음과 같이 변경한다.
+
+**models/index.js**
+```
+const Sequelize = require("sequelize");
+const User = require("./user");
+const Post = require("./post");
+const Hashtag = require("./hashtag");
+const env = process.env.NODE_ENV || "development";
+const config = require("../config/config")[env];
+
+const db = {};
+const sequelize = new Sequelize(
+  config.database, config.username, config.password, config,
+);
+
+db.sequelize = sequelize;
+db.User = User;
+db.Post = Post;
+db.Hashtag = Hashtag;
+
+User.initiate(sequelize);
+Post.initiage(sequelize);
+Hashtag.initiate(sequelize);
+
+User.associate(db);
+Post.associate(db);
+Hashtag.associate(db);
+
+module.exports = db;
+```
+
+각각의 모델들을 수동으로 시퀄라이즈 객체에 연결하였다. 그러나 모델이 늘어남에 따라 코드가 점점 복잡해질 수 있기 때문에 다음과 같이 자동으로 연결하는 코드를 작성할 수도 있다.
+
+**models/index.js**
+```
+const Sequelize = require("sequelize");
+const fs = require("fs");
+const path = require("path");
+const User = require("./user");
+const Post = require("./post");
+const Hashtag = require("./hashtag");
+const env = process.env.NODE_ENV || "development";
+const config = require("../config/config")[env];
+
+const db = {};
+const sequelize = new Sequelize(
+  config.database, config.username, config.password, config,
+);
+
+db.sequelize = sequelize;
+
+const basename = path.basename(__filename);
+
+fs
+  .readdirSync(__dirname)   // 현재 디렉터리의 모든 파일을 조회
+  .filter((file) => {       // 숨김 파일, index.js, js 확장자가 아닌 파일 필터링
+    return (file.indexOf('.') !== 0) && (file !== basename) && (file.slice(-3) === ".js");
+  })
+  .forEach((file) => {      // 해당 파일의 모델을 불러와서 init
+    const model = require(path.join(__dirname, file));
+    console.log(file, model.name);
+    db[model.name] = model;
+    model.initiate(sequelize);
+  });
+
+Object.keys(db).forEach((modelName) => {  // associate 호출
+  if (db[modelName].associate) {
+    db[modelName].associate(db);
+  }
+});
+
+module.exports = db;
 ```
