@@ -1312,5 +1312,342 @@ exports.logout = (req, res) => {
 
 **passport/localStrategy.js**
 ```
+const passport = require("passport");
+const LocalStrategy = require("passport-local").Strategy;
+const bcrypt = require("bcrypt");
 
+const User = require("../models/user");
+
+module.exports = () => {
+// 1
+    passport.use(new LocalStrategy({
+        usernameField: "email",
+        passwordField: "password",
+        passReqToCallback: false,
+// 1
+// 2
+    }, async (email, password, done) => {
+        try {
+            const exUser = await User.findOne({ where: { email } });
+            if (exUser) {
+                const result = await bcrypt.compare(password, exUser.password);
+                if (result) {
+                    done(null, exUser);
+                } else {
+                    done(null, false, { message: "비밀번호가 일치하지 않습니다." });
+                }
+            } else {
+                done(null, false, { message: "가입되지 않은 회원입니다." });
+            }
+        } catch (error) {
+            console.error(error);
+            done(error);
+        }
+    }));
+};
+// 2
+```
+
+1. `LocalStrategy` 생성자의 첫 번째 인수로 주어진 객체는 전략에 관한 설정이다. `usernameField`와 `passwordField`에는 일치하는 로그인 라우터의 `req.body` 속성명을 명시하면 된다. `req.body.email`에 이메일, `req.body.password`에 비밀번호가 담겨 들어오므로 `email`과 `password`를 각각 명시하였다.
+2. 실제 전략을 수행하는 `async` 함수이다. `LocalStrategy` 생성자의 두 번째 인수로 주어진다. 첫 번째 인수에 전달해 준 `email`과 `password`는 각각 함수의 첫 번째, 두 번째 매개변수가 된다. 세 번째 매개변수인 `done` 함수는 `passport.authenticate`의 콜백 함수이다.<br>
+전략은 우선 사용자 데이터베이스에서 일치하는 이메일이 있는지 찾은 후, 존재한다면 `bcrypt`의 `compare` 함수로 비밀번호를 비교한다. 비밀번호까지 일치한다면 `done` 함수의 두 번째 인수로 사용자 정보를 전달한다.<br>
+`done` 함수의 첫 번째 인수는 서버에서 에러가 발생했을 때만 사용되고, 두 번째 인수는 로그인에 성공했을 때만 사용되고, 세 번째 인수는 비밀번호가 일치하지 않거나 회원이 존재하지 않는 등의 사용자 정의 에러가 발생했을 때 사용된다.<br>
+앞서 `passport.authenticate`의 두 번째 인수인 콜백 함수가 `(authError, user, info)`의 세 개의 매개변수를 가졌는데, `done` 함수의 인수가 순서대로 매핑된다고 생각하면 된다.
+
+`done`이 호출되면 `passport.authenticate`의 콜백 함수에서 나머지 로직이 실행된다. 로그인에 성공했다면 메인 페이지로 리다이렉트되면서 로그인 폼 대신 회원 정보가 렌더링 될 것이다. 아직 `auth` 라우터를 연결하는 동작까지는 구현되지 않았다.
+
+
+### 9.3.2 카카오 로그인 구현하기
+
+카카오 로그인이란 로그인 인증 과정을 카카오에 맡기는 것을 뜻한다. 사용자는 번거롭게 새로운 사이트에 회원 가입하지 않아도 되고, 서비스 제공자는 로그인 과정을 검증된 소셜 미디어 서비스에 맡길 수 있어 편리하다.
+
+소셜 미디어 서비스 로그인은 회원 가입 절차가 따로 존재하지 않는다. 그러나 내부적으로 처음 로그인할 때는 회원 가입 처리를 해야 하고, 두 번째 로그인부터는 로그인 처리를 해야 한다. 따라서 로컬 로그인 전략보다는 다소 복잡하다.
+
+다음과 같이 `passport-kakao` 모듈로부터 `Strategy` 생성자를 불러와 전략을 구현한다.
+
+**passport/kakaoStrategy.js**
+```
+const passport = require("passport");
+const KakaoStrategy = require("passport-kakao").Strategy;
+
+const User = require("../models/user");
+
+module.exports = () => {
+// 1
+    passport.use(new KakaoStrategy({
+        clientID: process.env.KAKAO_ID,
+        callbackURL: "/auth/kakao/callback",
+// 1
+// 2
+    }, async (accessToken, refreshToken, profile, done) => {
+        console.log("kakao profile", profile);
+        
+        try {
+            const exUser = await User.findOne({
+                where: { snsId: profile.id, provider: "kakao" },
+            });
+            if (exUser) {
+                done(null, exUser);
+// 2
+// 3
+            } else {
+                const newUser = await User.create({
+                    email: profile._json?.kakao_account?.email,
+                    nick: profile.displayName,
+                    snsId: profile.id,
+                    provider: "kakao",
+                });
+                
+                done(null, newUser);
+            }
+        } catch (error) {
+            console.error(error);
+            done(error);
+        }
+    }));
+};
+// 3
+```
+
+1. 카카오 로그인에 대한 설정을 하는 부분이다. `clientID`는 카카오에서 발급해주는 아이디이다. 노출되지 않아야 하므로 `process.env.KAKAO_ID`로 설정했으며, 나중에 아이디를 발급받아 `.env` 파일에 명시할 것이다. `callbackURL`은 카카오로부터 인증 결과를 받을 라우터 주소이다.
+2. 기존에 카카오를 통해 회원 가입한 사용자가 있는지 조회하고, 있을 시 사용자 정보와 함께 `done` 함수를 호출하고 전략을 종료한다.
+3. 기존에 회원 가입하지 않았다면 가입을 진행한다. 카카오에서는 인증 후 `callbackURL`에 적힌 주소로 `accessToken`, `refreshToken`, `profile`을 전송한다. `profile`에는 사용자 정보들이 포함되어 있다. 카카오에서 보내주는 것이므로 데이터는 `console.log` 메소드로 확인해 보는 것이 좋다. `profile` 객체에서 원하는 정보를 꺼내와 회원 가입을 진행하면 된다. `email`은 `undefined`일 수도 있어 옵셔널 체이닝 문법을 사용하였다. 우선 사용자를 생성한 뒤 `done` 함수를 호출한다.
+
+다음으로는 카카오 로그인 라우터를 작성한다. `routes/auth.js`의 로그아웃 라우터 아래에 추가하면 된다. 회원 가입을 따로 코딩할 필요가 없고 카카오 로그인 전략이 대부분의 로직을 처리하므로 라우터가 상대적으로 간단하다. 컨트롤러도 따로 분리하지 않는다.
+
+**routes/auth.js**
+```
+const express = require("express");
+const passport = require("passport");
+
+const { isLoggedIn, isNotLoggedIn } = require("../middlewares");
+const { join, login, logout } = require("../controllers/auth");
+
+const router = express.Router();
+
+// POST /auth/join
+router.post("/join", isNotLoggedIn, join);
+
+// POST /auth/login
+router.post("/login", isNotLoggedIn, login);
+
+// GET /auth/logout
+router.get("/logout", isLoggedIn, logout);
+
+// GET /auth/kakao
+router.get("/kakao", passport.authenticate("kakao"));
+
+// GET /auth/kakao/callback
+router.get("/kakao/callback", passport.authenticate("kakao", {
+    failureRedirect: "/?error=카카오 로그인 실패",
+}), (req, res) => {
+    res.redirect("/");  // 성공 시에는 /로 이동
+});
+
+module.exports = router;
+```
+
+`GET /auth/kakao`로 접근하면 카카오 로그인 과정이 시작된다. `layout.html`의 **카카오톡** 버튼에 `/auth/kakao` 링크가 연결되어 있다. `GET /auth/kakao`에서 로그인 전략(`KakaoStrategy`)을 수행하는데, 처음에는 카카오 로그인 페이지로 리다이렉트한다. 그 페이지에서 로그인 후 결과를 `GET /auth/kakao/callback`으로 전달받는다. 해당 라우터에서는 카카오 로그인 전략(`KakaoStrategy`)을 다시 수행한다.
+
+로컬 로그인과 다른 점은 `passport.authenticate` 메소드에 콜백 함수를 제공하지 않는다는 것이다. 카카오 로그인은 로그인 성공 시 내부적으로 `req.login`을 호출하기 때문에 직접 호출할 필요가 없다. 콜백 함수 대신 로그인에 실패했을 때 어디로 리다이렉트할지를 `failureRedirect` 속성에 명시하고, 성공 시에도 어디로 리다이렉트할지를 다음 미들웨어에 명시한다.
+
+추가한 `auth.js` 라우터를 `app.js`에 연결한다.
+
+**app.js**
+```
+const express = require("express");
+const cookieParser = require("cookie-parser");
+const morgan = require("morgan");
+const path = require("path");
+const session = require("express-session");
+const nunjucks = require("nunjucks");
+const dotenv = require("dotenv");
+const passport = require("passport");
+
+dotenv.config();
+const pageRouter = require("./routes/page");
+const authRouter = require("./routes/auth");
+const { sequelize } = require("./models");
+const passportConfig = require("./passport");
+
+const app = express();
+passportConfig();   // passport 설정
+app.set("port", process.env.PORT || 8001);
+app.set("view engine", "html");
+nunjucks.configure("views", {
+    express: app,
+    watch: true,
+});
+
+sequelize.sync({ force: false })
+    .then(() => {
+        console.log("데이터베이스 연결 성공");
+    })
+    .catch((err) => {
+        console.error(err);
+    });
+
+app.use(morgan("dev"));
+app.use(express.static(path.join(__dirname, "public")));
+app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
+app.use(cookieParser(process.env.COOKIE_SECRET));
+app.use(session({
+    resave: false,
+    saveUninitialized: false,
+    secret: process.env.COOKIE_SECRET,
+    cookie: {
+        httpOnly: true,
+        secure: false,
+    },
+}));
+app.use(passport.initialize());
+app.use(passport.session());
+
+app.use("/", pageRouter);
+app.use("/auth", authRouter);
+
+app.use((req, res, next) => {
+    const error = new Error(`${req.method} ${req.url} 라우터가 없습니다.`);
+    error.status = 404;
+    next(error);
+});
+
+app.use((err, req, res, next) => {
+    res.locals.message = err.message;
+    res.locals.error = process.env.NODE_ENV !== "production" ? err : {};
+    res.status(err.status || 500);
+    res.render("error");
+});
+
+app.listen(app.get("port"), () => {
+    console.log(app.get("port"), "번 포트에서 대기 중");
+});
+```
+
+다음으로는 `kakaoStrategy.js`에서 사용하는 `clientID`를 발급받는다. 카카오 로그인을 위해서는 카카오 개발자 계정과 카카오 로그인용 애플리케이션 등록이 필요하다. 이를 위해 다음과 같은 절차를 따른다.
+
+1. **https://developers.kakao.com** 에 접속해 회원 가입 또는 로그인을 한다.
+2. **내 애플리케이션** 메뉴에 가서 **애플리케이션 추가하기** 버튼을 클릭한다.
+3. **앱 이름**과 **회사 이름**을 등록한다.
+4. 생성한 앱의 **REST API 키**를 복사해 `.env` 파일에 추가한다. `KAKAO_ID=9804670777cb2b155d1f1a9dee11e90f`
+5. **앱 설정** > **플랫폼**에서 **Web 플랫폼 등록** 메뉴를 선택한다. 사이트 도메인에 `http://localhost:8001`을 기입한다.
+6. **제품 설정** > **카카오 로그인** 메뉴에서 **활성화 설정** 상태 스위치를 **ON** 상태로 만든다. 그 후 같은 페이지의 **Redirect URI 등록** 버튼을 클릭해 `http://localhost:8001/auth/kakao/callback`을 입력한 후 저장한다. 이 주소는 `kakaoStrategy.js`의 `callbackURL`과 일치해야 한다.
+7. **제품 설정** > **카카오 로그인** > **동의 항목** 메누로 가서 로그인 동의 항목을 작성한다. 원하는 정보가 있다면 **설정**을 누르고 **동의 단계**와 **동의 목적**을 작성한다. 닉네임과 이메일을 수집할 수 있게 설정한다.
+
+이제 서비스에서 **카카오톡** 버튼을 눌러 `GET /auth/kakao` 라우터로 요청을 보내면 카카오 인증이 시작된다.
+
+카카오 로그인 외에도 구글(`passport-google-oauth2`), 페이스북(`passport-facebook`), 네이버(`passport-naver`), 트위터(`passport-twitter`) 로그인도 비슷한 방식으로 가능하다.
+- - -
+
+
+## 9.4 multer 패키지로 이미지 업로드 구현하기
+
+6.2.7절에서 배운 `multer` 모듈을 사용하여 멀티파트 형식의 이미지 업로드를 구현한다.
+
+패키지를 먼저 설치한다.
+
+**console**
+```
+PS D:\공부\Javascript\Study_Node.js\Codes\chapter09\nodebird> npm i multer
+
+up to date, audited 272 packages in 1s
+
+28 packages are looking for funding
+  run `npm fund` for details
+
+2 moderate severity vulnerabilities
+
+Some issues need review, and may require choosing
+a different dependency.
+
+Run `npm audit` for details.
+```
+
+이미지를 어떻게 저장할 것인지는 서비스 특성에 따라 달라진다. 나의 소셜 미디어 서비스에서는 `input` 태그를 통해 이미지를 선택할 때 바로 업로드를 진행하고, 업로드된 사진 주소를 다시 클라이언트에 알린다. 게시글을 저장할 때는 데이터베이스에 직접 이미지 데이터를 넣는 대신 이미지의 경로만 저장하고, 실제 이미지 파일은 서버 디스크(`uploads` 디렉터리)에 저장된다.
+
+다음과 같이 `post` 라우터와 컨트롤러를 작성한다.
+
+**routes/post.js**
+```
+const express = require("express");
+const multer = require("multer");
+const path = require("path");
+const fs = require("path");
+
+const { afterUploadImage, uploadPost } = require("../controllers/post");
+const { isLoggedIn } = require("../middlewares");
+
+const router = express.Router();
+
+try {
+    fs.readdirSync("uploads");
+} catch (error) {
+    console.error("uploads 디렉터리가 없어 새롭게 생성합니다.");
+    fs.mkdirSync("uploads");
+}
+
+const upload = multer({
+    storage: multer.diskStorage({
+        destination(req, file, cb) {
+            cb(null, "uploads/");
+        },
+
+        filename(req, file, cb) {
+            const ext = path.extname(file.originalname);
+            cb(null, path.basename(file.originalname, ext) + Date.now() + ext);
+        },
+    }),
+
+    limits: { fileSize: 5 * 1024 * 1024 },
+});
+
+// POST /post/img
+router.post("/img", isLoggedIn, upload.single("img"), afterUploadImage);
+
+// POST /post
+const upload2 = multer();
+router.post("/", isLoggedIn, upload2.none(), uploadPost);
+
+module.exports = router;
+```
+
+**controllers/post.js**
+```
+const { Post, Hashtag } = require("../models");
+
+exports.afterUploadImage = (req, res) => {
+    console.log(req.file);
+
+    res.json({ url: `/img/${req.file.filename}` });
+};
+
+exports.uploadPost = async (req, res, next) => {
+    try {
+        const post = await Post.create({
+            content: req.body.content,
+            img: req.body.url,
+            UserId: req.user.id,
+        });
+
+        const hashtags = req.body.content.match(/#[^\s#]*/g);
+        if (hashtags) {
+            const result = await Promise.all(
+                hashtags.map((tag) => {
+                    return Hashtag.findOrCreate({
+                        where: { title: tag.slice(1).toLowerCase() },
+                    })
+                }),
+            );
+
+            await post.addHashtags(result.map(r => r[0]));
+        }
+
+        res.redirect("/");
+
+    } catch (error) {
+        console.error(error);
+        next(error);
+    }
+};
 ```
