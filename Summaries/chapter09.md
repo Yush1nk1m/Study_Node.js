@@ -1120,7 +1120,7 @@ module.exports = () => {
 **로그인 과정**은 다음과 같다.
 
 1. `/auth/login` 라우터를 통해 로그인 요청이 들어옴
-2. 라우터에서 `passport.quthenticate` 메소드 호출
+2. 라우터에서 `passport.authenticate` 메소드 호출
 3. 로그인 전략(`LocalStrategy`) 수행
 4. 로그인 성공 시 사용자 정보 객체와 함께 `req.login` 호출
 5. `req.login` 메소드가 `passport.serializeUser` 호출
