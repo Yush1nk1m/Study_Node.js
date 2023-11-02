@@ -340,7 +340,7 @@ exports.renderMain = (req, res) => {
                 const userId = tag.parentNode.querySelector(".twit-user-id").value;
                 if (userId !== myId.value) {
                     if (confirm("팔로잉하시겠습니까?")) {
-                        axios.post(`/user/${userid}/follow`)
+                        axios.post(`/user/${userId}/follow`)
                             .then(() => {
                                 location.reload();
                             })
@@ -1630,7 +1630,7 @@ exports.uploadPost = async (req, res, next) => {
             UserId: req.user.id,
         });
 
-        const hashtags = req.body.content.match(/#[^\s#]*/g);
+        const hashtags = req.body.content.match(/#[^\s#]+/g);
         if (hashtags) {
             const result = await Promise.all(
                 hashtags.map((tag) => {
@@ -1651,3 +1651,303 @@ exports.uploadPost = async (req, res, next) => {
     }
 };
 ```
+
+`multer` 사용 부분은 6.2.7절의 코드와 거의 유사하다. `POST /post/img` 라우터와 `POST /post` 라우터 두 개를 만들었다. `app.use("/post")`를 할 것이므로 앞에 `/post` 경로가 추가되었다.
+
+`POST /post/img` 라우터에서는 이미지 하나를 업로드받은 뒤 이미지의 저장 경로를 응답한다. `static` 미들웨어가 `/img` 경로의 정적 파일을 제공하므로 클라이언트에서는 업로드한 이미지에 접근할 수 있다.
+
+`POST /post` 라우터는 게시글 업로드는 처리하는 라우터이다. 이전의 라우터에서 이미지를 업로드했다면 이미지 주소도 `req.body.url`로 전송된다. 데이터 형식이 `multipart`이지만 이미지 데이터가 들어 있지 않으므로 `none` 메소드를 사용했다. 이미지는 직접 전달되지 않고 주소를 통해 전달된다.
+
+게시글을 데이터베이스에 저장한 후에는 내용에서 해시태그를 정규표현식(`/#[^\s#]+/g`)으로 추출한다. 추출한 해시태그는 다시 `#` 문자를 제거하고 소문자로 바꾼 뒤 데이터베이스에 저장한다. 저장할 때는 `findOrCreate` 메소드를 사용하였는데, 이 시퀄라이즈 메소드는 데이터베이스에 존재하면 가져오고, 존재하지 않으면 생성하고 가져온다. 가져온 데이터의 형태가 `[모델, 생성 여부]`이므로 `result.map(r => r[0])`으로 모델만 추출하였다. 마지막으로 해시태그 모델들을 `post.addHashtags` 메소드로 게시글과 연결하였다.
+
+이렇게 게시글 작성 기능이 추가되었으므로 이제부터 메인 페이지 로딩 시 메인 페이지와 게시글을 함께 로딩하도록 설정한다.
+
+**controllers/page.js**
+```
+const { User, Post } = require("../models");
+
+exports.renderProfile = (req, res) => {
+    res.render("profile", { title: "내 정보 - NodeBird" });
+};
+
+exports.renderJoin = (req, res) => {
+    res.render("join", { title: "회원 가입 - NodeBird" });
+};
+
+exports.renderMain = async (req, res, next) => {
+    try {
+        const posts = await Post.findAll({
+            include: {
+                model: User,
+                attributes: ["id", "nick"],
+            },
+
+            order: [["createdAt", "DESC"]],
+        });
+
+        res.render("main", {
+            title: "NodeBird",
+            twits: posts,
+        });
+    } catch (err) {
+        console.error(err);
+        next(err);
+    }
+};
+```
+
+데이터베이스에서 게시글을 조회한 뒤 결과를 `twits`에 담아 렌더링한다. 조회 시 작성자의 아이디와 닉네임을 JOIN으로 제공하고, 게시글의 순서는 최신순으로 정렬하였다. 지금까지 이미지 업로드 기능을 구현하였다.
+- - -
+
+
+## 9.5 프로젝트 마무리하기
+
+마지막으로는 팔로잉 기능과 해시태그 검색 기능을 추가한다. 다른 사용자를 팔로우하는 기능을 구현하기 위해 `routes/user.js`와 `controllers/user.js`를 다음과 같이 작성한다.
+
+**routes/user.js**
+```
+const express = require("express");
+
+const { isLoggedIn } = require("../middlewares");
+const { follow } = require("../controllers/user");
+
+const router = express.Router();
+
+// POST /user/:id/follow
+router.post("/:id/follow", isLoggedIn, follow);
+
+module.exports = router;
+```
+
+**controllers/user.js**
+```
+const User = require("../models/user");
+
+exports.follow = async (req, res, next) => {
+    try {
+        const user = await User.findOne({ where: { id: req.user.id } });
+        if (user) {     // req.user.id가 followerId, req.params.id가 followingId
+            await user.addFollowing(parseInt(req.params.id, 10));
+            res.send("success");
+        } else {
+            res.status(404).send("no user");
+        }
+    } catch (error) {
+        console.error(error);
+        next(error);
+    }
+};
+```
+
+`POST /user/:id/follow`의 라우터이다. `:id` 부분은 `req.params.id`가 된다. 먼저 팔로우할 사용자를 데이터베이스에서 조회한 뒤, 시퀄라이즈에서 추가한 `addFollowing` 메소드로 현재 로그인한 사용자(follower)와의 관계를 추가한다.
+
+팔로잉 관계가 발생하였으므로 `req.user`에도 팔로워와 팔로잉 목록을 저장한다. 앞으로 사용자 정보를 불러올 땐 팔로워, 팔로잉 목록도 함께 불러올 것이다. `req.user`를 바꾸려면 `deserializeUser`를 조작해야 한다.
+
+**passport/index.js**
+```
+const passport = require("passport");
+const local = require("./localStrategy");
+const kakao = require("./kakaoStrategy");
+const User = require("../models/user");
+
+module.exports = () => {
+    passport.serializeUser((user, done) => {
+        done(null, user.id);
+    });
+
+    passport.deserializeUser((id, done) => {
+        User.findOne({
+            where: { id },
+            include: [{
+                model: User,
+                attributes: ["id", "nick"],
+                as: "Followers",
+            }, {
+                model: User,
+                attributes: ["id", "nick"],
+                as: "Followings",
+            }]
+        })
+            .then(user => done(null, user))
+            .catch(err => done(err));
+    });
+
+    local();
+    kakao();
+}
+```
+
+세션에 저장된 아이디로 사용자 정보를 조회할 때 팔로잉, 팔로워 목록도 함께 조회한다. `include`에서 계속 `attributes`를 지정하는 이유는 실수로 비밀번호를 조회하는 것을 방지하기 위함이다.
+
+팔로잉/팔로워 숫자와 팔로우 버튼을 표시하기 위해 `routes/page.js`를 다음과 같이 수정한다.
+
+**routes/page.js**
+```
+const express = require("express");
+const { isLoggedIn, isNotLoggedIn } = require("../middlewares");
+const { renderProfile, renderJoin, renderMain, renderHashtag } = require("../controllers/page");
+
+const router = express.Router();
+
+router.use((req, res, next) => {
+    res.locals.user = req.user;
+    res.locals.followerCount = req.user?.Followers?.length || 0;
+    res.locals.followingCount = req.user?.Followings?.length || 0;
+    res.locals.followingIdList = req.user?.Followings?.map(f => f.id) || [];
+    next();
+});
+
+router.get("/profile", isLoggedIn, renderProfile);
+
+router.get("/join", isNotLoggedIn, renderJoin);
+
+router.get("/", renderMain);
+
+router.get("/hashtag", renderHashtag);
+
+module.exports = router;
+```
+
+로그인한 경우엔 `req.user`가 존재하므로 옵셔널 체이닝을 이용하여 팔로잉/팔로워 수와 팔로잉 아이디 리스트를 저장한다. 팔로잉 아이디 리스트는 팔로우 버튼을 선택적으로 표시하기 위해 전달한다.
+
+`GET /hashtag`는 해시태그로 조회하는 라우터이다. 쿼리스트링으로 해시태그 이름을 받고, 해시태그 값이 없으면 메인 페이지로 돌려 보낸다. 데이터베이스에 해시태그 값이 있다면 시퀄라이즈에서 제공하는 `getPosts` 메소드로 모든 게시글을 가져온다. 가져올 때는 `include`가 작성자 정보를 JOIN하게 된다. 조회한 후 메인 페이지를 렌더링하면서 전체 게시글 대신 조회된 게시글만 `twits`에 넣어 렌더링한다.
+
+**controllers/page.js**
+```
+...
+exports.renderHashtag = async (req, res, next) => {
+    const query = req.query.hashtag;
+    if (!query) {
+        return res.redirect("/");
+    }
+
+    try {
+        const hashtag = await Hashtag.findOne({ where: { title: query } });
+        let posts = [];
+        if (hashtag) {
+            posts = await hashtag.getPosts({ include: [{ model: User }] });
+        }
+
+        return res.render("main", {
+            title: `${query} | NodeBird`,
+            twits: posts,
+        });
+    } catch (error) {
+        console.error(error);
+        return next(error);
+    }
+};
+```
+
+마지막으로 `routes/page.js`와 `routes/user.js`를 `app.js`에 연결한다. 업로드한 이미지를 제공할 라우터(`/img`)도 `express.static` 미들웨어로 `uploads` 디렉터리와 연결한다. `express.static`은 여러 번 사용할 수 있다. 이제 `uploads` 디렉터리 내 사진들이 `/img` 주소로 제공된다.
+
+**app.js**
+```
+const express = require("express");
+const cookieParser = require("cookie-parser");
+const morgan = require("morgan");
+const path = require("path");
+const session = require("express-session");
+const nunjucks = require("nunjucks");
+const dotenv = require("dotenv");
+const passport = require("passport");
+
+dotenv.config();
+const pageRouter = require("./routes/page");
+const authRouter = require("./routes/auth");
+const postRouter = require("./routes/post");
+const userRouter = require("./routes/user");
+const { sequelize } = require("./models");
+const passportConfig = require("./passport");
+
+const app = express();
+passportConfig();   // passport 설정
+app.set("port", process.env.PORT || 8001);
+app.set("view engine", "html");
+nunjucks.configure("views", {
+    express: app,
+    watch: true,
+});
+
+sequelize.sync({ force: false })
+    .then(() => {
+        console.log("데이터베이스 연결 성공");
+    })
+    .catch((err) => {
+        console.error(err);
+    });
+
+app.use(morgan("dev"));
+app.use(express.static(path.join(__dirname, "public")));
+app.use("/img", express.static(path.join(__dirname, "uploads")));
+app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
+app.use(cookieParser(process.env.COOKIE_SECRET));
+app.use(session({
+    resave: false,
+    saveUninitialized: false,
+    secret: process.env.COOKIE_SECRET,
+    cookie: {
+        httpOnly: true,
+        secure: false,
+    },
+}));
+app.use(passport.initialize());
+app.use(passport.session());
+
+app.use("/", pageRouter);
+app.use("/auth", authRouter);
+app.use("/post", postRouter);
+app.use("/user", userRouter);
+
+app.use((req, res, next) => {
+    const error = new Error(`${req.method} ${req.url} 라우터가 없습니다.`);
+    error.status = 404;
+    next(error);
+});
+
+app.use((err, req, res, next) => {
+    res.locals.message = err.message;
+    res.locals.error = process.env.NODE_ENV !== "production" ? err : {};
+    res.status(err.status || 500);
+    res.render("error");
+});
+
+app.listen(app.get("port"), () => {
+    console.log(app.get("port"), "번 포트에서 대기 중");
+});
+```
+
+이제 서버를 실행하면 구현한 모든 기능을 사용할 수 있다.
+
+
+### 9.5.1 스스로 해보기
+
+이 프로젝트를 조금 더 완성도 높게 만들기 위해 해야 하는 작업들을 나열한다.
+
+- 팔로잉 끊기(시퀄라이즈의 `destroy` 메소드와 라우터 활용)
+- 프로필 정보 변경하기(시퀄라이즈의 `update` 메소드와 라우터 활용)
+- 게시글 좋아요 누르기 및 좋아요 취소하기(사용자 - 게시글 모델 간 N:M 관계 정립 후 라우터 활용)
+- 게시글 삭제하기(등록자와 현재 로그인한 사용자가 같을 때, 시퀄라이즈의 `destroy` 메소드와 라우터 활용)
+- 사용자 이름을 누르면 그 사용자의 게시글만 보여주기
+- 매번 데이터베이스를 조회하지 않도록 `deserializeUser` 캐싱하기(객체 선언 후 객체에 사용자 정보 저장, 객체 안에 캐싱된 값이 있으면 조회)
+
+
+### 9.5.2 핵심 정리
+
+- 서버는 요청에 응답하는 것이 핵심 임무이므로 요청을 수락하든 거절하든 상관없이 반드시 단 한 번 응답해야 한다.
+- 개발 시 서버를 매번 수동으로 재시작하지 않으려면 `nodemon`을 사용하는 것이 좋다.
+- `dotenv` 패키지와 `.env` 파일로 유출되면 안 되는 비밀 키를 관리한다.
+- 라우터는 `routes` 디렉터리에, 데이터베이스는 `model` 디렉터리에, `html` 파일은 `views` 디렉터리에 각각 구분해서 저장하면 프로젝트 규모가 커져도 관리하기 쉽다.
+- 라우터에서 응답을 보내는 미들웨어를 컨트롤러라고 한다. 컨트롤러도 `controllers` 디렉터리로 따로 분리하면 코드를 관리하기 편하다.
+- 데이터베이스를 구성하기 전에 데이터 간 1:1, 1:N, N:M 관계를 잘 파악한다.
+- `middlewares/index.js`처럼 라우터 내에 미들웨어를 사용할 수 있다는 것을 기억한다.
+- `Passport`의 인증 과정을 기억해 둔다. 특히 `serializeUser`와 `deserializeUser`가 언제 호출되는지 파악하고 있어야 한다.
+- 프론트엔드 `form` 태그의 인코딩 방식이 `multipart`일 때는 `multer` 같은 `multipart` 처리용 패키지를 사용하는 것이 좋다.
+- - -
+
+
+## 9.6 함께 보면 좋은 자료
+
+생략
+- - -
