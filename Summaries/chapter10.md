@@ -1320,3 +1320,116 @@ exports.renderMain = (req, res) => {
 </body>
 </html>
 ```
+
+이 상태로 브라우저에 접속하면 Access-Control-Allow-Origin이라는 헤더가 없다는 내용의 에러가 발생한다. 브라우저와 서버의 도메인이 일치하지 않아 기본적으로 요청이 차단된 것이다. 이 현상은 브라우저에서 서버로 요청을 보낼 때만 발생하고, 서버에서 서버로 요청을 보낼 땐 발생하지 않는다. 현재 요청을 보내는 클라이언트(localhost:4000)와 요청을 받는 서버(localhosdt:8002)의 도메인이 다르다. 이러한 문제를 `CORS(Cross-Origin Resource Sharing)` 문제라고 한다.
+
+문제를 해결하기 위해 API 서버에 cors 모듈을 설치한다.
+
+**console**
+```
+Study_Node.js/Codes/chapter10/nodebird-api$ npm i cors
+```
+
+그리고 **v2.js**에 이를 적용한다.
+
+**nodebird-api/routes/v2.js**
+```
+const express = require("express");
+const cors = require("cors");
+
+const { verifyToken, apiLimiter } = require("../middlewares");
+const { createToken, tokenTest, getMyPosts, getPostsByHashtag } = require("../controllers/v1");
+
+const router = express.Router();
+
+router.use(cors({
+    credentials: true,
+}));
+
+...
+```
+
+`router.use`를 사용해 v2의 모든 라우터에 CORS를 적용하였다. 이제 응답에 Access-Control-Allow-Origin 헤더가 자동적으로 추가된다. `credentials: true` 옵션은 도메인 간 쿠키를 공유하기 위해 필요한 옵션이다. axios에서도 도메인이 다른데 쿠키를 공유해야 하는 경우 `withCredentials: true` 옵션을 주어 요청을 보내야 한다.
+
+하지만 `credentials: true` 옵션으로 인해 비밀 키가 불특정 다수에게 노출될 위험이 있게 되었다. 따라서 호스트와 비밀 키가 모두 일치할 때만 CORS를 허용하도록 수정한다.
+
+**nodebird-api/routes/v2.js**
+```
+const express = require("express");
+
+const { verifyToken, apiLimiter, corsWhenDomainMatches } = require("../middlewares");
+const { createToken, tokenTest, getMyPosts, getPostsByHashtag } = require("../controllers/v1");
+
+const router = express.Router();
+
+router.use(corsWhenDomainMatches);
+
+...
+```
+
+**nodebird-api/middlewares/index.js**
+```
+const jwt = require("jsonwebtoken");
+const rateLimit = require("express-rate-limit");
+const cors = require("cors");
+const { Domain } = require("../models");
+
+...
+
+exports.corsWhenDomainMatches = async (req, res, next) => {
+    const domain = await Domain.findOne({
+        where: { host: new URL(req.get("origin")).host },
+    });
+
+    if (domain) {
+        cors({
+            origin: req.get("origin"),
+            credentials: true,
+        })(req, res, next);
+    } else {
+        next();
+    }
+};
+```
+
+먼저 도메인 모델로 클라이언트의 도메인(`req.get("origin")`) 중 호스트 도메인이 있는지 검사한다. http, https와 같은 프로토콜을 뗴어낼 때는 주소를 `URL` 객체로 만들어 `host` 속성을 사용한다.
+
+`cors` 미들웨어 사용 시 `(res, res, next)`를 직접 주어 호출하고 있는데, 이는 미들웨어의 작동 방식을 커스터마이징하고 싶을 때 사용하는 방법이다.
+
+다음 두 코드가 같은 역할을 한다는 것을 알아두자.
+
+```
+router.use(cors());
+```
+
+```
+router.use((req, res, next) => {
+    cors()(req, res, next);
+});
+```
+
+## 10.8 프로젝트 마무리하기
+
+### 10.8.1 스스로 해보기
+
+- 팔로워나 팔로잉 목록을 가져오는 API 만들기(nodebird-api에 새로운 라우터 추가)
+- 무료인 도메인과 프리미엄 도메인 간에 사용량 제한을 다르게 적용하기(apiLimiter를 두 개 만들어서 도메인별로 다르게 적용, 9.3.1절의 POST /auth/login 라우터 참조)
+- 클라이언트용 비밀 키와 서버용 비밀 키를 구분해서 발급하기(Domain 모델 수정)
+- 클라이언트를 위해 API 문서 작성하기(swagger나 apidoc 사용)
+
+### 10.8.2 핵심 정리
+
+- API는 다른 애플리케이션의 기능을 사용할 수 있게 해주는 창구이다.
+- 모바일 서버를 구성할 때 서버를 REST API 방식으로 구현한다.
+- API 사용자가 API를 쉽게 사용할 수 있도록 사용 방법, 요청 형식, 응답 내용에 관한 문서를 준비한다.
+- JWT 토큰의 내용은 공개되며 변조될 수 있다는 점을 기억한다. 단, 시그니처를 확인하면 변조 여부를 확인할 수 있다.
+- 토큰을 사용해 API 오남용을 막는다. 요청 헤더에 토큰이 있는지를 항상 확인하는 것이 좋다.
+- app.use 외에도 router.use를 활용해 라우터 간에 공통되는 로직을 처리할 수 있다.
+- cors나 passport.authenticate처럼 미들웨어 내에서 미들웨어를 실행할 수 있다. 미들웨어를 선택적으로 적용하거나 커스터마이징할 때 이러한 기법을 사용한다.
+- 브라우저와 서버의 도메인이 다르면 요청이 거절된다는 특성(CORS)을 이해해야 한다. 서버와 서버 간의 요청에 대해서는 CORS 문제가 발생하지 않는다.
+
+### 10.8.3 함께 보면 좋은 자료
+
+생략
+
+- - -
