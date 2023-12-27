@@ -384,3 +384,597 @@ Ran all test suites.
 ```
 
 하지만 유닛 테스트만으로는 실제 데이터베이스에 팔로잉이 등록되는 것인지 알기 어렵다. 따라서 실제 데이터베이스에선 문제가 발생할 수 있다. 이럴 때는 유닛 테스트가 아닌 통합 테스트나 시스템 테스트를 진행할 수 있다.
+
+- - -
+
+## 11.3 테스트 커버리지
+
+jest의 `커버리지(coverage)` 기능을 사용하여 전체 코드 중 테스트되고 있는 코드의 비율과 테스트되지 않고 있는 코드의 위치를 알 수 있다.
+
+커버리지 기능 사용을 위해 **package.json**을 다음과 같이 수정한다.
+
+**package.json**
+```
+{
+  "name": "nodebird",
+  "version": "0.0.1",
+  "description": "익스프레스로 만드는 SNS 서비스",
+  "main": "app.js",
+  "scripts": {
+    "start": "nodemon app",
+    "test": "jest",
+    "coverage": "jest --coverage"
+  },
+
+...
+```
+
+**console**
+```
+Study_Node.js/Codes/chapter11/nodebird$ npm run coverage
+
+> nodebird@0.0.1 coverage
+> jest --coverage
+
+ PASS  middlewares/index.test.js
+ PASS  controllers/user.test.js
+  ● Console
+
+    console.error
+      데이터베이스 오류
+
+      11 |         }
+      12 |     } catch (error) {
+    > 13 |         console.error(error);
+         |                 ^
+      14 |         next(error);
+      15 |     }
+      16 | };
+
+      at error (controllers/user.js:13:17)
+      at Object.<anonymous> (controllers/user.test.js:42:9)
+
+-------------|---------|----------|---------|---------|-------------------
+File         | % Stmts | % Branch | % Funcs | % Lines | Uncovered Line #s 
+-------------|---------|----------|---------|---------|-------------------
+All files    |      84 |      100 |      60 |      84 |                   
+ controllers |     100 |      100 |     100 |     100 |                   
+  user.js    |     100 |      100 |     100 |     100 |                   
+ middlewares |     100 |      100 |     100 |     100 |                   
+  index.js   |     100 |      100 |     100 |     100 |                   
+ models      |   33.33 |      100 |       0 |   33.33 |                   
+  user.js    |   33.33 |      100 |       0 |   33.33 | 5-53              
+-------------|---------|----------|---------|---------|-------------------
+
+Test Suites: 2 passed, 2 total
+Tests:       7 passed, 7 total
+Snapshots:   0 total
+Time:        0.796 s
+Ran all test suites.
+```
+
+마지막으로 출력되는 표의 각각의 열들의 의미는 다음과 같다.
+
+- `File`: 파일과 디렉터리 이름
+- `% Stmts`: 구문 비율
+- `% Branch`: if문 등의 분기점 비율
+- `% Funcs`: 함수 비율
+- `% Lines`: 코드 줄 수 비율
+- `Uncovered Line #s`: 커버되지 않은 줄 위치
+
+명시적으로 테스트하고 require한 코드만 커버리지 분석이 되기 때문에 테스트 커버리지가 100%라고 하더라도 모든 코드가 테스트되는 것은 아닐 수 있다.
+
+**models/user.js**의 5번째 줄 ~ 53번째 줄이 테스트되지 않았다고 확인되고 있으므로 이를 테스트하는 코드를 다음과 같이 작성한다.
+
+**models/user.test.js**
+```
+const Sequelize = require("sequelize");
+const User = require("./user");
+const config = require("../config/config")["test"];
+const sequelize = new Sequelize(
+    config.database, config.username, config.password, config,
+);
+
+describe("User model", () => {
+    test("static initiate 메소드를 호출한다.", () => {
+        expect(User.initiate(sequelize)).toBe(undefined);
+    });
+
+    test("static associate 메소드를 호출한다.", () => {
+        const db = {
+            User: {
+                hasMany: jest.fn(),
+                belongsToMany: jest.fn(),
+            },
+
+            Post: {},
+        }
+        User.associate(db);
+
+        expect(db.User.hasMany).toHaveBeenCalledWith(db.Post);
+        expect(db.User.belongsToMany).toHaveBeenCalledTimes(2);
+    });
+});
+```
+
+db 객체를 모킹하고 `initiate` 메소드와 `associate` 메소드가 제대로 호출되는지 테스트하였다. 이 과정에서 **models** 디렉터리에 모델이 아닌 테스트 파일을 생성했으므로 **models/index.js**가 모델을 시퀄라이즈와 자동으로 연결할 때 test 파일들을 걸러낼 수 있도록 수정되어야 한다.
+
+**models/index.js**
+```
+const Sequelize = require("sequelize");
+const fs = require("fs");
+const path = require("path");
+const User = require("./user");
+const Post = require("./post");
+const Hashtag = require("./hashtag");
+const env = process.env.NODE_ENV || "development";
+const config = require("../config/config")[env];
+
+const db = {};
+const sequelize = new Sequelize(
+  config.database, config.username, config.password, config,
+);
+
+db.sequelize = sequelize;
+
+const basename = path.basename(__filename);
+
+fs
+  .readdirSync(__dirname)   // 현재 디렉터리의 모든 파일을 조회
+  .filter((file) => {       // 숨김 파일, index.js, js 확장자가 아닌 파일 필터링
+    return (file.indexOf('.') !== 0) && !file.includes("test") && (file !== basename) && (file.slice(-3) === ".js");
+  })
+  .forEach((file) => {      // 해당 파일의 모델을 불러와서 init
+    const model = require(path.join(__dirname, file));
+    console.log(file, model.name);
+    db[model.name] = model;
+    model.initiate(sequelize);
+  });
+
+Object.keys(db).forEach((modelName) => {  // associate 호출
+  if (db[modelName].associate) {
+    db[modelName].associate(db);
+  }
+});
+
+module.exports = db;
+```
+
+실제 테스트 시에는 테스트 커버리지를 올리는 데 집중하기보단 필요한 부분 위주로 정확히 테스트하는 것이 중요하다.
+
+- - -
+
+## 11.4 통합 테스트
+
+`통합 테스트(integration test)`란 라우터와 같은 큰 단위의 구성 요소들이 모두 유기적으로 잘 작동하는지 테스트하는 것이다.
+
+통합 테스트를 위해 `supertest`를 설치한다.
+
+**console**
+```
+Study_Node.js/Codes/chapter11/nodebird$ npm i -D supertest
+
+added 15 packages, and audited 535 packages in 3s
+
+54 packages are looking for funding
+  run `npm fund` for details
+
+2 moderate severity vulnerabilities
+
+Some issues need review, and may require choosing
+a different dependency.
+
+Run `npm audit` for details.
+```
+
+`supertest` 사용을 위해서는 `app` 객체를 모듈로 분리해야 한다. **app.js** 파일에서 `app` 객체를 모듈화한 후 **server.js**에서 불러와 listen한다. **server.js**는 오직 `app`의 포트 리스닝만 담당한다. 이렇게 하면 **app.js**에는 순수 서버 코드만 남게 된다.
+
+**app.js**
+```
+const express = require("express");
+const cookieParser = require("cookie-parser");
+const morgan = require("morgan");
+const path = require("path");
+const session = require("express-session");
+const nunjucks = require("nunjucks");
+const dotenv = require("dotenv");
+const passport = require("passport");
+
+dotenv.config();
+const pageRouter = require("./routes/page");
+const authRouter = require("./routes/auth");
+const postRouter = require("./routes/post");
+const userRouter = require("./routes/user");
+const { sequelize } = require("./models");
+const passportConfig = require("./passport");
+
+const app = express();
+passportConfig();   // passport 설정
+app.set("port", process.env.PORT || 8001);
+app.set("view engine", "html");
+nunjucks.configure("views", {
+    express: app,
+    watch: true,
+});
+
+sequelize.sync({ force: false })
+    .then(() => {
+        console.log("데이터베이스 연결 성공");
+    })
+    .catch((err) => {
+        console.error(err);
+    });
+
+app.use(morgan("dev"));
+app.use(express.static(path.join(__dirname, "public")));
+app.use("/img", express.static(path.join(__dirname, "uploads")));
+app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
+app.use(cookieParser(process.env.COOKIE_SECRET));
+app.use(session({
+    resave: false,
+    saveUninitialized: false,
+    secret: process.env.COOKIE_SECRET,
+    cookie: {
+        httpOnly: true,
+        secure: false,
+    },
+}));
+app.use(passport.initialize());
+app.use(passport.session());
+
+app.use("/", pageRouter);
+app.use("/auth", authRouter);
+app.use("/post", postRouter);
+app.use("/user", userRouter);
+
+app.use((req, res, next) => {
+    const error = new Error(`${req.method} ${req.url} 라우터가 없습니다.`);
+    error.status = 404;
+    next(error);
+});
+
+app.use((err, req, res, next) => {
+    res.locals.message = err.message;
+    res.locals.error = process.env.NODE_ENV !== "production" ? err : {};
+    res.status(err.status || 500);
+    res.render("error");
+});
+
+module.exports = app;
+```
+
+**server.js**
+```
+const app = require("./app");
+
+app.listen(app.get("port"), () => {
+    console.log(app.get("port"), "번 포트에서 대기 중");
+});
+```
+
+`npm start` 명령어도 바뀐 파일 정보에 맞게 변경한다.
+
+**package.json**
+```
+{
+  "name": "nodebird",
+  "version": "0.0.1",
+  "description": "익스프레스로 만드는 SNS 서비스",
+  "main": "server.js",
+  "scripts": {
+    "start": "nodemon server",
+    "test": "jest",
+    "coverage": "jest --coverage"
+  },
+
+...
+```
+
+다음으로는 테스트용 데이터베이스를 설정한다. 통합 테스트에서는 데이터베이스 코드를 모킹하지 않으므로 실제 테스트용 데이터가 데이터베이스에 저장될 수 있어야 한다. 그러므로 테스트용 데이터베이스를 따로 만드는 것이 좋다.
+
+**config/config.json**에서 `test` 속성을 수정한다. 테스트 환경에서는 `test` 속성의 정보를 사용해 데이터베이스에 연결하게 된다.
+
+**config/config.json**
+```
+{
+  "development": {
+    "username": "root",
+    "password": "kimyush1n@@",
+    "database": "nodebird",
+    "host": "127.0.0.1",
+    "dialect": "mysql"
+  },
+  "test": {
+    "username": "root",
+    "password": "kimyush1n@@",
+    "database": "nodebird_test",
+    "host": "127.0.0.1",
+    "dialect": "mysql"
+  },
+  "production": {
+    "username": "root",
+    "password": null,
+    "database": "database_production",
+    "host": "127.0.0.1",
+    "dialect": "mysql"
+  }
+}
+```
+
+콘솔에서 테스트용 데이터베이스를 생성하는 명령어를 입력한다.
+
+**console**
+```
+Study_Node.js/Codes/chapter11/nodebird$ npx sequelize db:create --env test
+
+Sequelize CLI [Node: 20.9.0, CLI: 6.6.1, ORM: 6.33.0]
+
+Loaded configuration file "config/config.json".
+Using environment "test".
+Database nodebird_test created.
+```
+
+이제 로그인 라우터에 대한 테스트 코드를 작성해볼 것이다.
+
+**routes/auth.test.js**
+```
+const request = require("supertest");
+const { sequelize } = require("../models");
+const app = require("../app");
+
+beforeAll(async () => {
+    await sequelize.sync();
+});
+
+describe("POST /login", () => {
+    test("로그인을 수행한다.", (done) => {
+        request(app) 
+            .post("/auth/login")
+            .send({
+                email: "kys010306@sogang.ac.kr",
+                password: "kimyush1n",
+            })
+            .expect("Location", "/")
+            .expect(302, done);
+    });
+});
+```
+
+`beforeAll`은 모든 테스트를 실행하기 전 수행되는 코드들이 위치할 함수이다. `sequelize.sync()`를 이 위치에 넣어 데이터베이스에 테이블을 생성해두고 있다. 비슷한 함수로 `afterAll`(테스트 이후 수행될 코드들), `beforeEach`(각각의 테스트 이전 수행될 코드들), `afterEach`(각각의 테스트 이후 수행될 코드들)가 있다.
+
+`request` 함수는 `supertest` 패키지에 속한 함수로, `app` 객체를 인수로 전달한 후 `get`, `post`, `patch`, `delete` 등의 메소드로 원하는 라우터에 요청을 보낼 수 있다. 그 후 예상되는 응답 결과를 `expect` 메소드의 인수로 전달하면 된다. `request` 함수는 비동기 함수이므로 마지막에 `test` 함수의 콜백 함수의 매개변수인 `done`을 `expect` 메소드의 두 번째 인수로 전달하여 테스트가 마무리되었음을 알려야 한다.
+
+다음으로는 회원가입에 대한 테스트를 로그인 전에 수행할 수 있도록 테스트를 추가한다.
+
+**routes/auth.test.js**
+```
+describe("POST /join", () => {
+    test("로그인하지 않았으면 회원 가입한다.", (done) => {
+        request(app)
+            .post("/auth/join")
+            .send({
+                email: "kys010306@sogang.ac.kr",
+                "nick": "yushin",
+                password: "kimyush1n",
+            })
+            .expect("Location", "/")
+            .expect(302, done);
+    });
+});
+
+describe("POST /join", () => {
+    const agent = request.agent(app);
+    beforeEach((done) => {
+        agent
+            .post("/auth/login")
+            .send({
+                email: "kys010306@sogang.ac.kr",
+                password: "kimyush1n",
+            })
+            .end(done);
+    });
+
+    test("이미 로그인했으면 /로 redirect한다.", (done) => {
+        const message = encodeURIComponent("로그인한 상태입니다.");
+
+        agent
+            .post("/auth/join")
+            .send({
+                email: "kys010306@sogang.ac.kr",
+                nick: "yushin",
+                password: "kimyush1n",
+            })
+            .expect("Location", `/?error=${message}`)
+            .expect(302, done);
+    });
+});
+```
+
+첫 번째 `describe`는 회원 가입을 테스트하는 것, 두 번째 `describe`는 로그인한 상태에서 회원 가입을 시도하는 경우를 테스트하는 것이다. 이때 회원 가입을 테스트하기 전 로그인하는 코드를 작성하였다. 이때 `agent`를 만들어 하나 이상의 요청에서 재사용할 수 있다.
+
+`beforeEach`에서는 `end(done)`으로 agent 객체의 메소드 체이닝이 마무리되었음을 알리고 있다.
+
+아직 테스트가 완벽하지 않다. 반복해서 테스트를 수행하면 이미 회원 가입된 동일한 데이터가 존재하기 때문에 회원 가입 과정에서 오류가 발생한다. 따라서 테스트 종료 시 데이터를 정리하는 코드를 `afterAll`을 사용해 추가한다.
+
+**routes/auth.test.js**
+```
+const request = require("supertest");
+const { sequelize } = require("../models");
+const app = require("../app");
+
+beforeAll(async () => {
+    await sequelize.sync();
+});
+
+describe("POST /join", () => {
+    test("로그인하지 않았으면 회원 가입한다.", (done) => {
+        request(app)
+            .post("/auth/join")
+            .send({
+                email: "kys010306@sogang.ac.kr",
+                "nick": "yushin",
+                password: "kimyush1n",
+            })
+            .expect("Location", "/")
+            .expect(302, done);
+    });
+});
+
+describe("POST /join", () => {
+    const agent = request.agent(app);
+    beforeEach((done) => {
+        agent
+            .post("/auth/login")
+            .send({
+                email: "kys010306@sogang.ac.kr",
+                password: "kimyush1n",
+            })
+            .end(done);
+    });
+
+    test("이미 로그인했으면 /로 redirect한다.", (done) => {
+        const message = encodeURIComponent("로그인한 상태입니다.");
+
+        agent
+            .post("/auth/join")
+            .send({
+                email: "kys010306@sogang.ac.kr",
+                nick: "yushin",
+                password: "kimyush1n",
+            })
+            .expect("Location", `/?error=${message}`)
+            .expect(302, done);
+    });
+});
+
+afterAll(async () => {
+    await sequelize.sync({ force: true });
+});
+```
+
+추가한 데이터를 명시적으로 삭제할 필요 없이 `sequelize.sync`에 `force: true` 옵션을 주어 테이블을 다시 생성한다. 그러면 테이블이 초기화되면서 데이터도 자연스럽게 정리된다.
+
+회원 가입 테스트는 끝났으므로 로그인과 로그아웃까지 테스트하는 코드를 작성한다.
+
+**routes/auth.test.js**
+```
+const request = require("supertest");
+const { sequelize } = require("../models");
+const app = require("../app");
+
+beforeAll(async () => {
+    await sequelize.sync();
+});
+
+describe("POST /join", () => {
+    test("로그인하지 않았으면 회원 가입한다.", (done) => {
+        request(app)
+            .post("/auth/join")
+            .send({
+                email: "kys010306@sogang.ac.kr",
+                "nick": "yushin",
+                password: "kimyush1n",
+            })
+            .expect("Location", "/")
+            .expect(302, done);
+    });
+});
+
+describe("POST /join", () => {
+    const agent = request.agent(app);
+    beforeEach((done) => {
+        agent
+            .post("/auth/login")
+            .send({
+                email: "kys010306@sogang.ac.kr",
+                password: "kimyush1n",
+            })
+            .end(done);
+    });
+
+    test("이미 로그인했으면 /로 redirect한다.", (done) => {
+        const message = encodeURIComponent("로그인한 상태입니다.");
+
+        agent
+            .post("/auth/join")
+            .send({
+                email: "kys010306@sogang.ac.kr",
+                nick: "yushin",
+                password: "kimyush1n",
+            })
+            .expect("Location", `/?error=${message}`)
+            .expect(302, done);
+    });
+});
+
+describe("POST /login", () => {
+    test("회원 가입되지 않았다.", (done) => {
+        const message = encodeURIComponent("가입되지 않은 회원입니다.");
+        request(app)
+            .post("/auth/login")
+            .send({
+                email: "ayw@sogang.ac.kr",
+                password: "kimyush1n",
+            })
+            .expect("Location", `/?error=${message}`)
+            .expect(302, done);
+    });
+
+    test("로그인을 수행한다.", (done) => {
+        request(app)
+            .post("/auth/login")
+            .send({
+                email: "kys010306@sogang.ac.kr",
+                password: "kimyush1n",
+            })
+            .expect("Location", "/")
+            .expect(302, done);
+    });
+
+    test("비밀번호가 일치하지 않는다.", (done) => {
+        const message = encodeURIComponent("비밀번호가 일치하지 않습니다.");
+
+        request(app)
+            .post("/auth/login")
+            .send({
+                email: "kys010306@sogang.ac.kr",
+                password: "1",
+            })
+            .expect("Location", `/?error=${message}`)
+            .expect(302, done);
+    });
+});
+
+describe("GET /logout", () => {
+    test("로그인되어 있지 않으면 403 상태 코드가 응답된다.", (done) => {
+        request(app)
+            .get("/auth/logout")
+            .expect(403, done);
+    });
+
+    const agent = request.agent(app);
+    beforeEach((done) => {
+        agent
+            .post("/auth/login")
+            .send({
+                email: "kys010306@sogang.ac.kr",
+                password: "kimyush1n",
+            })
+            .end(done);
+    });
+
+    test("로그아웃을 수행한다.", (done) => {
+        agent
+            .get("/auth/logout")
+            .expect("Location", "/")
+            .expect(302, done);
+    });
+});
+
+afterAll(async () => {
+    await sequelize.sync({ force: true });
+});
+```
+
+- - -
