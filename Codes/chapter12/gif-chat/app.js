@@ -7,6 +7,7 @@ const nunjucks = require("nunjucks");
 const dotenv = require("dotenv");
 
 dotenv.config();
+const webSocket = require("./socket");
 const indexRouter = require("./routes");
 
 const app = express();
@@ -18,7 +19,7 @@ nunjucks.configure("view", {
 });
 
 app.use(morgan("dev"));
-app.use(express.static(path.join(__dirname, "public")));
+app.use(express.static(path.join(__dirname, "views")));
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser(process.env.COOKIE_SECRET));
@@ -47,6 +48,8 @@ app.use((err, req, res, next) => {
     res.render("error");
 });
 
-app.listen(app.get("port"), () => {
+const server = app.listen(app.get("port"), () => {
     console.log(app.get("port"), "번 포트에서 대기 중");
 });
+
+webSocket(server);
