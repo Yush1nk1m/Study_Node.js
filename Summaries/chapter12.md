@@ -351,7 +351,7 @@ module.exports = (server) => {
             path: "/socket.io",
         });
 
-        sockt.on("news", (data) => {
+        socket.on("news", (data) => {
             console.log(data);
             socket.emit("reply", "Hello Node.JS");
         });
@@ -372,3 +372,583 @@ module.exports = (server) => {
 
 ## 12.4 실시간 GIF 채팅방 만들기
 
+이 장에서는 GIF 채팅방을 구현한다. 데이터베이스는 MongoDB와 ODM인 mongoose를 사용할 것이다.
+
+먼저 필요한 모듈을 설치한다.
+
+**console**
+```
+Study_Node.js/Codes/chapter12/gif-chat$ npm i mongoose multer color-hash@2
+
+added 39 packages, and audited 172 packages in 5s
+
+17 packages are looking for funding
+  run `npm fund` for details
+
+3 moderate severity vulnerabilities
+
+To address all issues, run:
+  npm audit fix
+
+Run `npm audit` for details.
+```
+
+사용자는 익명으로 정의할 것이므로 채팅방과 채팅 내역에 대한 스키마만 생성할 것이다.
+
+**schemas/room.js**
+```
+const mongoose = require("mongoose");
+const { Schema } = mongoose;
+
+const roomSchema = new Schema({
+    title: {
+        type: String,
+        required: true,
+    },
+    
+    max: {
+        type: Number,
+        required: true,
+        default: 10,
+        min: 2,
+    },
+
+    owner: {
+        type: String,
+        required: true,
+    },
+
+    password: {
+        type: String,
+    },
+
+    createdAt: {
+        type: Date,
+        default: Date.now,
+    },
+});
+
+module.exports = mongoose.model("Room", roomSchema);
+```
+
+채팅방 스키마에는 방 제목(`title`), 최대 수용 인원(`max`), 방장(`owner`), 비밀번호(`password`), 생성 시간(`createdAt`)을 정의하였다.
+
+**schemas/chat.js**
+```
+const mongoose = require("mongoose");
+const { Schema } = mongoose;
+const { Types: { ObjectId } } = Schema;
+
+const chatSchema = new Schema({
+    room: {
+        type: ObjectId,
+        required: true,
+        ref: "Room",
+    },
+
+    user: {
+        type: String,
+        required: true,
+    },
+
+    chat: {
+        type: String,
+    },
+
+    gif: {
+        type: String,
+    },
+
+    createdAt: {
+        type: Date,
+        default: Date.now,
+    },
+});
+
+module.exports = mongoose.model("Chat", chatSchema);
+```
+
+채팅 스키마에는 채팅방 아이디(`room`), 채팅을 한 사람(`user`), 텍스트 내용(`chat`), GIF 이미지 주소(`gif`), 채팅 시간(`createdAt`)을 저장한다.
+
+다음으로 정의한 스키마들을 MongoDB에 연결한다.
+
+**schemas/index.js**
+```
+const mongoose = require("mongoose");
+const { MONGO_ID, MONGO_PASSWORD, NODE_ENV } = process.env;
+const MONGO_URL = `mongodb://${MONGO_ID}:${MONGO_PASSWORD}@localhost:27017/admin`;
+
+const connect = () => {
+    if (NODE_ENV !== "production") {
+        mongoose.set("debug", true);
+    }
+
+    mongoose.connect(MONGO_URL, {
+        dbName: "gifchat",
+        useNewUrlParser: true,
+    }).then(() => {
+        console.log("MongoDB connected.");
+    }).catch((err) => {
+        console.error("MongoDB connection error:", err);
+    });
+};
+
+mongoose.connection.on("error", (error) => {
+    console.error("MongoDB connection error:", error);
+});
+
+mongoose.connection.on("disconnected", () => {
+    console.error("MongoDB disconnected. Try to connect again.");
+    connect();
+});
+
+module.exports = connect;
+```
+
+**.env**
+```
+COOKIE_SECRET=gifchat
+MONGO_ID=root
+MONGO_PASSWORD=nodejsbook
+```
+
+다음으로 서버와 mongoose를 연결한다.
+
+**app.js**
+```
+...
+
+dotenv.config();
+const webSocket = require("./socket");
+const indexRouter = require("./routes");
+const connect = require("./schemas");
+
+const app = express();
+app.set("port", process.env.PORT || 8005);
+app.set("view engine", "html");
+nunjucks.configure("view", {
+    express: app,
+    watch: true,
+});
+connect();
+
+...
+```
+
+이제 채팅 앱 메인 화면과 채팅방 생성 화면을 만들 것이다. 채팅뿐만 아니라 채팅방도 실시간으로 생성되고 삭제되도록 구현된다.
+
+화면의 레이아웃을 담당하는 **layout.html**을 작성하고, **views/error.html**을 수정한다.
+
+**views/layout.html**
+```
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>{{title}}</title>
+    <link rel="stylesheet" href="/main.css">
+</head>
+<body>
+    {% block content %}
+    {% endblock %}
+    {% block script %}
+    {% endblock %}
+</body>
+</html>
+```
+
+**views/error.html**
+```
+{% extends "layout.html" %}
+
+{% block content %}
+    <h1>{{message}}</h1>
+    <h2>{{error.status}}</h2>
+    <pre>{{error.stack}}</pre>
+{% endblock %}
+```
+
+간단한 css도 추가한다.
+
+**views/main.css**
+```
+* { box-sizing: border-box; }
+.mine { text-align: right; }
+.system { text-align: center; }
+.mine img, .other img {
+    max-width: 300px;
+    display: inline-block;
+    border: 1px solid silver;
+    border-radius: 5px;
+    padding: 2px 5px;
+}
+.mine div:first-child, .other div:first-child { font-size: 12px; }
+.mine div:last-child, .other div:last-child {
+    display: inline-block;
+    border: 1px solid silver;
+    border-radius: 5px;
+    padding: 2px 5px;
+    max-width: 300px;
+}
+#exit-btn { position: absolute; top: 20px; right: 20px; }
+#chat-list { height: 500px; overflow: auto; padding: 5px; }
+#chat-form { text-align: right; }
+label[for="gif"], #chat, #chat-form [type="submit"] {
+    display: inline-block;
+    height: 30px;
+    vertical-align: top;
+}
+label[for="gif"] { cursor: pointer; padding: 5px; }
+#gif { display: none; }
+table, table th, table td {
+    text-align: center;
+    border: 1px solid silver;
+    border-collapse: collapse;
+}
+```
+
+다음으로 메인 화면을 담당하는 **main.html**을 작성한다.
+
+**views/main.html**
+```
+{% extends "layout.html" %}
+
+{% block content %}
+<h1>GIF 채팅방</h1>
+<fieldset>
+    <legend>채팅방 목록</legend>
+    <table>
+        <thead>
+            <tr>
+                <th>방 제목</th>
+                <th>종류</th>
+                <th>허용 인원</th>
+                <th>방장</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for room in rooms %}
+            <tr data-id="{{room._id}}">
+                <td>{{room.title}}</td>
+                <td>{{"비밀방" if room.password else "공개방"}}</td>
+                <td>{{room.max}}</td>
+                <td style="color: {{room.owner}}">{{room.owner}}</td>
+                <td>
+                    <button
+                     data-password=`{{"true" if room.password else "false"}}`
+                     data-id="{{room._id}}"
+                     class="join-btn"
+                    >입장</button>
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    <div class="error-message">{{error}}</div>
+    <a href="/room">채팅방 생성</a>
+</fieldset>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+    const socket = io.connect("http:localhost:8005/room", {
+        path: "/socket.io",
+    });
+
+    socket.on("newRoom", (data) => {
+        const tr = document.createElement("tr");
+        
+        let td = document.createElement("td");
+        td.textContent = data.title;
+        tr.appendChild(td);
+
+        td = document.createElement("td");
+        td.textContent = data.password ? "비밀방" : "공개방";
+        tr.appendChild(td);
+
+        td = document.createElement("td");
+        td.textContent = data.max;
+        tr.appendChild(td);
+
+        td = document.createElement("td");
+        td.style.color = data.owner;
+        td.textContent = data.owner;
+        tr.appendChild(td);
+
+        td = document.createElement("td");
+        const button = document.createElement("button");
+        button.textContent = "입장";
+        button.dataset.password = data.password ? "true" : "false";
+        button.dataset.id = data._id;
+        button.addEventListener("click", addBtnEvent);
+        td.appendChild(button);
+        tr.appendChild(td);
+
+        tr.dataset.id = data._id;
+        document.querySelector("table tbody").appendChild(tr);
+    });
+
+    socket.on("removeRoom", (data) => {
+        document.querySelectorAll("tbody tr").forEach((tr) => {
+            if (tr.dataset.id === data) {
+                tr.parentNode.removeChild(tr);
+            }
+        });
+    });
+
+    function addBtnEvent(e) {
+        if (e.target.dataset.password === "true") {
+            const password = prompt("비밀번호를 입력하세요.");
+            location.href = "/room/" + e.target.dataset.id + "?password=" + password;
+        } else {
+            location.href = "/room/" + e.target.dataset.id;
+        }
+    };
+
+    document.querySelectorAll(".join-btn").forEach((btn) => {
+        btn.addEventListener("click", addBtnEvent);
+    });
+</script>
+{% endblock %}
+
+{% block content %}
+<script>
+    window.onload = () => {
+        if (new URL(location.href).searchParams.get("error")) {
+            alert(new URL(location.href).searchParams.get("error"));
+        }
+    };
+</script>
+{% endblock %}
+```
+
+`io.connect`에서 주소 뒤에 **/room**이 추가되었다. 이를 네임스페이스라고 하며, 서버에서 해당 네임스페이스를 통해 보낸 데이터만 받을 수 있다. 네임스페이스를 여러 개 구분하면 주고 받을 데이터를 구분할 수도 있다.
+
+`socket`에는 미리 `newRoom`과 `removeRoom` 이벤트를 등록했다. 서버에서 웹 소켓으로 해당 이벤트를 발생시키면 이벤트 리스너의 콜백 함수가 실행된다.
+
+다음으로는 채팅방 생성 화면을 담당하는 **room.html**을 작성한다.
+
+**views/room.html**
+```
+{% extends 'layout.html' %}
+
+{% block content %}
+  <fieldset>
+    <legend>채팅방 생성</legend>
+    <form action="/room" method="post">
+      <div>
+        <input type="text" name="title" placeholder="방 제목">
+      </div>
+      <div>
+        <input type="number" name="max" placeholder="수용 인원(최소 2명)" min="2" value="10">
+      </div>
+      <div>
+        <input type="password" name="password" placeholder="비밀번호(없으면 공개방)">
+      </div>
+      <div>
+        <button type="submit">생성</button>
+      </div>
+    </form>
+  </fieldset>
+{% endblock %}
+```
+
+채팅방 화면을 담당하는 **chat.html**을 작성한다.
+
+**views/chat.html**
+```
+{% extends 'layout.html' %}
+
+{% block content %}
+  <h1>{{title}}</h1>
+  <a href="/" id="exit-btn">방 나가기</a>
+  <fieldset>
+    <legend>채팅 내용</legend>
+    <div id="chat-list">
+      {% for chat in chats %}
+        {% if chat.user === user %}
+          <div class="mine" style="color: {{chat.user}}">
+            <div>{{chat.user}}</div>
+            {% if chat.gif %}
+              <img src="/gif/{{chat.gif}}">
+            {% else %}
+              <div>{{chat.chat}}</div>
+            {% endif %}
+          </div>
+        {% elif chat.user === 'system' %}
+          <div class="system">
+            <div>{{chat.chat}}</div>
+          </div>
+        {% else %}
+          <div class="other" style="color: {{chat.user}}">
+            <div>{{chat.user}}</div>
+            {% if chat.gif %}
+              <img src="/gif/{{chat.gif}}">
+            {% else %}
+              <div>{{chat.chat}}</div>
+            {% endif %}
+          </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+  </fieldset>
+  <form action="/chat" id="chat-form" method="post" enctype="multipart/form-data">
+    <label for="gif">GIF 올리기</label>
+    <input type="file" id="gif" name="gif" accept="image/gif">
+    <input type="text" id="chat" name="chat">
+    <button type="submit">전송</button>
+  </form>
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io.connect('http://localhost:8005/chat', {
+      path: '/socket.io',
+    });
+    socket.emit('join', new URL(location).pathname.split('/').at(-1));
+    socket.on('join', function (data) {
+      const div = document.createElement('div');
+      div.classList.add('system');
+      const chat = document.createElement('div');
+      chat.textContent = data.chat;
+      div.appendChild(chat);
+      document.querySelector('#chat-list').appendChild(div);
+    });
+    socket.on('exit', function (data) {
+      const div = document.createElement('div');
+      div.classList.add('system');
+      const chat = document.createElement('div');
+      chat.textContent = data.chat;
+      div.appendChild(chat);
+      document.querySelector('#chat-list').appendChild(div);
+    });
+  </script>
+{% endblock %}
+```
+
+채팅 메시지는 내 메시지(`mine`), 시스템 메시지(`system`), 남의 메시지(`other`)로 구분된다. 종류에 따라 디자인이 달라진다.
+
+`socket.io` 부분을 확인해 보면 `io.connect` 메소드의 주소에서 네임스페이스가 **/chat**인 것을 확인할 수 있다.
+
+`socket`에 연결된 `join`, `exit` 이벤트는 각각 사용자의 입장과 퇴장에 대한 데이터가 웹 소켓으로 전송될 때 호출된다.
+
+이번에는 **app.js**에 `color-hash` 패키지를 적용하여 접속한 사용자마다 고유한 색상을 부여할 것이다. 현재 사용할 수 있는 사용자의 고유한 정보는 세션 아이디(`req.sessionID`)와 소켓 아이디(`socket.id`)이다. 그러나 페이지 이동 시마다 소켓이 재연결되기 때문에 소켓 아이디는 자주 바뀌게 된다. 따라서 세션 아이디를 고유 키로 사용한다.
+
+**app.js**
+```
+...
+
+const dotenv = require("dotenv");
+const ColorHash = require("color-hash").default;
+
+dotenv.config();
+const webSocket = require("./socket");
+const indexRouter = require("./routes");
+const connect = require("./schemas");
+
+const app = express();
+app.set("port", process.env.PORT || 8005);
+app.set("view engine", "html");
+nunjucks.configure("view", {
+    express: app,
+    watch: true,
+});
+connect();
+
+app.use(morgan("dev"));
+app.use(express.static(path.join(__dirname, "views")));
+app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
+app.use(cookieParser(process.env.COOKIE_SECRET));
+app.use(session({
+    resave: false,
+    saveUninitialized: false,
+    secret: process.env.COOKIE_SECRET,
+    cookie: {
+        httpOnly: true,
+        secure: false,
+    },
+}));
+
+app.use((req, res, next) => {
+    if (!req.session.color) {
+        const colorHash = new ColorHash();
+        req.session.color = colorHash.hex(req.sessionID);
+        console.log(req.session.color, req.sessionID);
+    }
+
+    next();
+});
+
+...
+
+webSocket(server, app);
+```
+
+다음으로 서버의 **socket.js**에 웹 소켓 이벤트를 연결한다.
+
+**socket.js**
+```
+const SocketIO = require("socket.io");
+
+module.exports = (server, app) => {
+    const io = SocketIO(server, { path: "/socket.io" });
+    app.set("io", io);
+    const room = io.of("/room");
+    const chat = io.of("/chat");
+
+    room.on("connection", (socket) => {
+        console.log("room 네임스페이스 접속");
+
+        socket.on("disconnect", () => {
+            console.log("room 네임스페이스 접속 해제");
+        });
+    });
+
+    chat.on("connection", (socket) => {
+        console.log("chat 네임스페이스 접속");
+
+        socket.on("join", (data) => {
+            socket.join(data);
+        });
+
+        socket.on("disconnect", () => {
+            console.log("chat 네임스페이스 접속 해제");
+        });
+    });
+};
+```
+
+먼저 `app.set("io", io)`로 라우터에서 `io` 객체를 사용할 수 있게 저장한다. `req.app.get("io")`로 접근 가능하다.
+
+`of` 메소드는 `Socket.IO`에 네임스페이스를 부여하는 메소드이다. 같은 네임스페이스끼리만 데이터 교환이 가능하다.
+
+`socket.join`의 `join` 메소드는 `Socket.IO`가 기본적으로 제공하는 이벤트가 아닌 사용자 정의 이벤트임을 유의한다.
+
+`Socket.IO`에는 네임스페이스보다 더 세부적인 개념으로 `방(room)`이라는 것이 있다. 같은 네임스페이스 안에서도 같은 방에 있는 소켓끼리만 데이터를 교환할 수 있는 것이다. `socket.join`은 방의 아이디를 인수로 전달받는다. 사용자가 브라우저에서 접속 시 `socket.emit("join", [방 아이디])`를 호출하면 `socket.js`의 `join` 이벤트에서 `data` 매개변수로 방 아이디를 전달받아 방에 접속할 것이다.
+
+방에서 나갈 때는 보통 `socket.leave([방 아이디])` 이벤트를 호출해야 하지만 이 예제에서는 연결이 끊기면 자동으로 방에서 나가지므로 따로 호출하지 않았다.
+
+이제 라우터와 컨트롤러를 작성한다.
+
+**routes/index.js**
+```
+const express = require("express");
+const { renderMain, renderRoom, createRoom, enterRoom, removeRoom } = require("../controllers");
+const router = express.Router();
+
+router.get("/", renderMain);
+
+router.get("/room", renderRoom);
+
+router.post("/room", createRoom);
+
+router.get("/room/:id", enterRoom);
+
+router.delete("/room/:id", removeRoom);
+
+module.exports = router;
+```
+
+순서대로 메인 화면 렌더링(`GET /`), 방 생성 화면 렌더링(`GET /room`), 방 생성 라우터(`POST /room`), 방 접속 라우터(`GET /room/:id`), 방 삭제 라우터(`DELETE /room/:id`)이다.
+
+**controllers/index.js**
+```
+
+```

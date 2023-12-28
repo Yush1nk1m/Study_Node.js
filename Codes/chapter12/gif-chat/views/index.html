@@ -12,7 +12,7 @@
             path: "/socket.io",
         });
 
-        sockt.on("news", (data) => {
+        socket.on("news", (data) => {
             console.log(data);
             socket.emit("reply", "Hello Node.JS");
         });
