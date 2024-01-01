@@ -1139,5 +1139,512 @@ module.exports = (server, app, sessionMiddleware) => {
 
 **services/index.js**
 ```
+const Room = require("../schemas/room");
+const Chat = require("../schemas/chat");
 
+exports.removeRoom = async (roomId) => {
+    try {
+        await Room.deleteOne({ _id: roomId });
+        await Chat.deleteOne({ room: roomId });
+    } catch (error) {
+        throw error;
+    }
+};
 ```
+
+`removeRoom` **컨트롤러**는 `removeRoom` **서비스**를 가져와 사용한다.
+
+**controllers/index.js**
+```
+const Room = require("../schemas/room");
+const Chat = require("../schemas/chat");
+const { removeRoom: removeRoomService } = require("../services");
+
+...
+
+exports.removeRoom = async (req, res, next) => {
+    try {
+        await removeRoomService(req.params.id);
+        res.send("ok");
+    } catch (error) {
+        console.error(error);
+        next(error);
+    }
+};
+```
+
+`removeRoom` 서비스 호출에는 `roomId`(방 아이디)만 필요하므로 `removeRoom` 컨트롤러와 **socket.js**에서 동일한 방식으로 사용할 수 있다.
+
+- - -
+
+## 12.6 채팅 구현하기
+
+프론트에서는 서버에서 보내는 채팅 데이터를 받을 소켓 이벤트 리스너가 필요하다. **chat.html**의 내용을 다음과 같이 수정한다.
+
+**views/chat.html**
+```
+{% extends 'layout.html' %}
+
+{% block content %}
+  <h1>{{title}}</h1>
+  <a href="/" id="exit-btn">방 나가기</a>
+  <fieldset>
+    <legend>채팅 내용</legend>
+    <div id="chat-list">
+      {% for chat in chats %}
+        {% if chat.user === user %}
+          <div class="mine" style="color: {{chat.user}}">
+            <div>{{chat.user}}</div>
+            {% if chat.gif %}
+              <img src="/gif/{{chat.gif}}">
+            {% else %}
+              <div>{{chat.chat}}</div>
+            {% endif %}
+          </div>
+        {% elif chat.user === 'system' %}
+          <div class="system">
+            <div>{{chat.chat}}</div>
+          </div>
+        {% else %}
+          <div class="other" style="color: {{chat.user}}">
+            <div>{{chat.user}}</div>
+            {% if chat.gif %}
+              <img src="/gif/{{chat.gif}}">
+            {% else %}
+              <div>{{chat.chat}}</div>
+            {% endif %}
+          </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+  </fieldset>
+  <form action="/chat" id="chat-form" method="post" enctype="multipart/form-data">
+    <label for="gif">GIF 올리기</label>
+    <input type="file" id="gif" name="gif" accept="image/gif">
+    <input type="text" id="chat" name="chat">
+    <button type="submit">전송</button>
+  </form>
+  <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io.connect('http://localhost:8005/chat', {
+      path: '/socket.io',
+    });
+    
+    socket.emit('join', new URL(location).pathname.split('/').at(-1));
+    
+    socket.on('join', function (data) {
+      const div = document.createElement('div');
+      div.classList.add('system');
+      const chat = document.createElement('div');
+      chat.textContent = data.chat;
+      div.appendChild(chat);
+      document.querySelector('#chat-list').appendChild(div);
+    });
+    
+    socket.on('exit', function (data) {
+      const div = document.createElement('div');
+      div.classList.add('system');
+      const chat = document.createElement('div');
+      chat.textContent = data.chat;
+      div.appendChild(chat);
+      document.querySelector('#chat-list').appendChild(div);
+    });
+
+    socket.on("chat", function (data) {
+      const div = document.createElement("div");
+      if (data.user === "{{user}}") {
+        div.classList.add("mine");
+      } else {
+        div.classList.add("other");
+      }
+
+      const name = document.createElement("div");
+      name.textContent = data.user;
+      div.appendChild(name);
+      if (data.chat) {
+        const chat = doucment.createElement("div");
+        chat.textContent = data.chat;
+        div.appendChild(chat);
+      } else {
+        const gif = document.createElement("img");
+        gif.src = "/gif/" + data.gif;
+        div.appendChild(gif);
+      }
+
+      div.style.color = data.user;
+      document.querySelector("#chat-list").appendChild(div);
+    });
+
+    document.querySelector("#chat-form").addEventListener("submit", function (e) {
+      e.preventDefault();
+      if (e.target.chat.value) {
+        axios.post("/room/{{room._id}}/chat", {
+          chat: this.chat.value,
+        }).then(() => {
+          e.target.chat.value = '';
+        }).catch((err) => {
+          console.error(err);
+        });
+      }
+    })
+  </script>
+{% endblock %}
+```
+
+`socket`에 `chat` 이벤트 리스너를 추가했다. `chat` 이벤트는 채팅 메시지가 웹 소켓으로 전송될 때 호출된다. 채팅 메시지 전송자(`data.user`)에 따라 내 메시지(`mine`)인지 타인의 메시지(`other`)인지 확인하여 그에 맞게 렌더링한다. 채팅 전송 폼에 `submit` 이벤트 리스너도 추가하였다.
+
+채팅은 여러 가지 방식으로 구현할 수 있는데, 현재는 채팅 내용을 데이터베이스에 저장하도록 설계하였으므로 라우터를 거치도록 하였다.
+
+이제 방에 접속하는 부분과 채팅을 하는 부분의 서버 코드를 작성한다.
+
+**controllers/index.js**
+```
+const Room = require("../schemas/room");
+const Chat = require("../schemas/chat");
+const { removeRoom: removeRoomService } = require("../services");
+
+exports.renderMain = async (req, res, next) => {
+    try {
+        const rooms = await Room.find({});
+        res.render("main", { rooms, title: "GIF 채팅방" });
+    } catch (error) {
+        console.error(error);
+        next(error);
+    }
+};
+
+exports.renderRoom = (req, res) => {
+    res.render("room", { title: "GIF 채팅방 생성" });
+};
+
+exports.createRoom = async (req, res, next) => {
+    try {
+        const newRoom = await Room.create({
+            title: req.body.title,
+            max: req.body.max,
+            owner: req.session.color,
+            password: req.body.password,
+        });
+
+        const io = req.app.get("io");
+        io.of("/room").emit("newRoom", newRoom);
+
+        if (req.body.password) {
+            res.redirect(`/room/${newRoom._id}?password=${req.body.password}`);
+        } else {
+            res.redirect(`/room/${newRoom._id}`);
+        }
+    } catch (error) {
+        console.error(error);
+        next(error);
+    }
+};
+
+exports.enterRoom = async (req, res, next) => {
+    try {
+        const room = await Room.findOne({ _id: req.params.id });
+        if (!room) {
+            return res.redirect(`/?error=존재하지 않는 방입니다.`);
+        }
+        if (room.password && room.password !== req.query.password) {
+            return res.redirect(`/?error=비밀번호가 일치하지 않습니다.`);
+        }
+
+        const io = req.app.get("io");
+        const { rooms } = io.of("/chat").adapter;
+        if (room.max <= rooms.get(req.params.id)?.size) {
+            return res.redirect(`/?error=허용 인원을 초과했습니다.`);
+        }
+
+        const chats = await Chat.find({ room: room._id }).sort("createdAt");
+
+        return res.render("chat", {
+            room,
+            title: room.title,
+            chats,
+            user: req.session.color,
+        });
+    } catch (error) {
+        console.error(error);
+        return next(error);
+    }
+};
+
+exports.removeRoom = async (req, res, next) => {
+    try {
+        await removeRoomService(req.params.id);
+        res.send("ok");
+    } catch (error) {
+        console.error(error);
+        next(error);
+    }
+};
+
+exports.sendChat = async (req, res, next) => {
+    try {
+        const chat = await Chat.create({
+            room: req.params.id,
+            user: req.session.color,
+            chat: req.body.chat,
+        });
+
+        req.app.get("io").of("/chat").to(req.params.id).emit("chat", chat);
+        res.send("ok");
+    } catch (error) {
+        console.error(error);
+        next(error);
+    }
+};
+```
+
+**routes/index.js**
+```
+const express = require("express");
+const {
+    renderMain, renderRoom, createRoom, enterRoom, removeRoom, sendChat
+} = require("../controllers");
+const router = express.Router();
+
+router.get("/", renderMain);
+
+router.get("/room", renderRoom);
+
+router.post("/room", createRoom);
+
+router.get("/room/:id", enterRoom);
+
+router.delete("/room/:id", removeRoom);
+
+router.post("/room/:id/chat", sendChat);
+
+module.exports = router;
+```
+
+먼저 `enterRoom` 컨트롤러에서 방 접속 시 기존 채팅 내역을 불러오도록 수정한다. 방에 접속할 때는 DB에서 채팅 내역을 가져오고, 접속 후에는 웹 소켓으로 새로운 채팅 메시지를 실시간으로 받는다.
+
+**POST /room/:id/chat** 경로에 대한 라우터를 새로이 생성하고, 채팅을 DB에 저장한 후 `io.of("/chat").to([방 아이디]).emit`으로 같은 방에 있는 웹 소켓들에 메시지 데이터를 전송한다.
+
+- - -
+
+## 12.7 프로젝트 마무리하기
+
+마지막으로 GIF 이미지 전송 기능을 구현한다. 프론트 화면에서 이미지를 선택해 업로드하는 이벤트 리스너를 추가한다.
+
+**views/chat.html**
+```
+...
+    document.querySelector("#gif").addEventListener("change", function (e) {
+      console.log(e.target.files);
+      const formData = new FormData();
+      formData.append("gif", e.target.files[0]);
+      axios.post("/room/{{room._id}}/gif", formData)
+        .then(() => {
+          e.target.file = null;
+        })
+        .catch((err) => {
+          console.error(err);
+        });
+    });
+...
+```
+
+다음으로는 **POST /room/{{room._id}}/gif** 주소에 대한 라우터를 작성한다.
+
+**routes/index.js**
+```
+const multer = require("multer");
+const path = require("path");
+const fs = require("fs");
+const express = require("express");
+const {
+    renderMain, renderRoom, createRoom, enterRoom, removeRoom, sendChat, sendGif,
+} = require("../controllers");
+const router = express.Router();
+
+router.get("/", renderMain);
+
+router.get("/room", renderRoom);
+
+router.post("/room", createRoom);
+
+router.get("/room/:id", enterRoom);
+
+router.delete("/room/:id", removeRoom);
+
+router.post("/room/:id/chat", sendChat);
+
+try {
+    fs.readdirSync("uploads");
+} catch (err) {
+    console.error("uploads 디렉터리가 존재하지 않으므로 새로이 생성합니다.");
+    fs.mkdirSync("uploads");
+}
+
+const upload = multer({
+    storage: multer.diskStorage({
+        destination(req, file, done) {
+            done(null, "uploads/");
+        },
+
+        filename(req, file, done) {
+            const ext = path.extname(file.originalname);
+            done(null, path.basename(file.originalname, ext) + Date.now() + ext);
+        },
+    }),
+    
+    limits: { fileSize: 5 * 1024 * 1024 },
+});
+
+router.post("/room/:id/gif", upload.single("gif"), sendGif);
+
+module.exports = router;
+```
+
+**controllers/index.js**
+```
+const Room = require("../schemas/room");
+const Chat = require("../schemas/chat");
+const { removeRoom: removeRoomService } = require("../services");
+
+exports.renderMain = async (req, res, next) => {
+    try {
+        const rooms = await Room.find({});
+        res.render("main", { rooms, title: "GIF 채팅방" });
+    } catch (error) {
+        console.error(error);
+        next(error);
+    }
+};
+
+exports.renderRoom = (req, res) => {
+    res.render("room", { title: "GIF 채팅방 생성" });
+};
+
+exports.createRoom = async (req, res, next) => {
+    try {
+        const newRoom = await Room.create({
+            title: req.body.title,
+            max: req.body.max,
+            owner: req.session.color,
+            password: req.body.password,
+        });
+
+        const io = req.app.get("io");
+        io.of("/room").emit("newRoom", newRoom);
+
+        if (req.body.password) {
+            res.redirect(`/room/${newRoom._id}?password=${req.body.password}`);
+        } else {
+            res.redirect(`/room/${newRoom._id}`);
+        }
+    } catch (error) {
+        console.error(error);
+        next(error);
+    }
+};
+
+exports.enterRoom = async (req, res, next) => {
+    try {
+        const room = await Room.findOne({ _id: req.params.id });
+        if (!room) {
+            return res.redirect(`/?error=존재하지 않는 방입니다.`);
+        }
+        if (room.password && room.password !== req.query.password) {
+            return res.redirect(`/?error=비밀번호가 일치하지 않습니다.`);
+        }
+
+        const io = req.app.get("io");
+        const { rooms } = io.of("/chat").adapter;
+        if (room.max <= rooms.get(req.params.id)?.size) {
+            return res.redirect(`/?error=허용 인원을 초과했습니다.`);
+        }
+
+        const chats = await Chat.find({ room: room._id }).sort("createdAt");
+
+        return res.render("chat", {
+            room,
+            title: room.title,
+            chats,
+            user: req.session.color,
+        });
+    } catch (error) {
+        console.error(error);
+        return next(error);
+    }
+};
+
+exports.removeRoom = async (req, res, next) => {
+    try {
+        await removeRoomService(req.params.id);
+        res.send("ok");
+    } catch (error) {
+        console.error(error);
+        next(error);
+    }
+};
+
+exports.sendChat = async (req, res, next) => {
+    try {
+        const chat = await Chat.create({
+            room: req.params.id,
+            user: req.session.color,
+            chat: req.body.chat,
+        });
+
+        req.app.get("io").of("/chat").to(req.params.id).emit("chat", chat);
+        res.send("ok");
+    } catch (error) {
+        console.error(error);
+        next(error);
+    }
+};
+
+exports.sendGif = async (req, res, next) => {
+    try {
+        const chat = await Chat.create({
+            room: req.params.id,
+            user: req.session.color,
+            gif: req.file.filename,
+        });
+
+        req.app.get("io").of("/chat").to(req.params.id).emit("chat", chat);
+        res.send("ok");
+    } catch (error) {
+        console.error(error);
+        next(error);
+    }
+};
+```
+
+마지막으로 이미지를 제공할 uploads 디렉터리를 `express.static` 미들웨어로 연결한다.
+
+**app.js**
+```
+...
+app.use("/gif", express.static(path.join(__dirname, "uploads")));
+...
+```
+
+### 12.7.1 스스로 해보기
+
+- 채팅방에 현재 참여자 수나 목록 표시하기(join, exit 이벤트에 socket.adapter.rooms에 들어 있는 참여자 목록 정보를 같이 보내기)
+- 시스템 메시지까지 데이터베이스에 저장하기(입장, 퇴장 이벤트에서 데이터베이스와 웹 소켓 처리하기)
+- 채팅방에서 한 사람에게 귓속말 보내기(화면을 만들고 socket.to([소켓 아이디]) 메소드 사용하기)
+- 방장 기능 구현하기(방에 방장 정보를 저장한 후 방장이 나갔을 때는 방장을 위임하는 기능 추가하기)
+- 강퇴 기능 구현하기(프론트엔드와 서버에 강퇴 소켓 이벤트 추가하기)
+
+### 12.7.2 핵심 정리
+
+- 웹 소켓과 HTTP는 같은 포트를 사용할 수 있으므로 따로 포트를 설정할 필요가 없다.
+- 웹 소켓은 양방향 통신이므로 서버뿐만 아니라 프론트엔드 측 스크립트도 사용해야 한다.
+- Socket.IO를 사용하면 웹 소켓을 지원하지 않는 브라우저에서까지 실시간 통신을 구현할 수 있다.
+- Socket.IO 네임스페이스와 방 구분을 통해 실시간 데이터를 필요한 사용자에게만 보낼 수 있다.
+- app.set("io", io)로 소켓 객체를 익스프레스와 연결하고, req.app.get("io")로 라우터에서 소켓 객체를 가져오는 방식이 핵심이다.
+- 컨트롤러에서 서비스를 따로 분리해 웹 소켓과 HTTP 요청 모두를 처리할 수 있도록 한다.
+
+### 12.7.3 함께 보면 좋은 자료
+
+생략
+
+- - -

@@ -1,5 +1,5 @@
 const SocketIO = require("socket.io");
-const removeRoom = require("./services");
+const { removeRoom } = require("./services");
 
 module.exports = (server, app, sessionMiddleware) => {
     const io = SocketIO(server, { path: "/socket.io" });
