@@ -950,5 +950,194 @@ module.exports = router;
 
 **controllers/index.js**
 ```
+const Room = require("../schemas/room");
+const Chat = require("../schemas/chat");
+
+exports.renderMain = async (req, res, next) => {
+    try {
+        const rooms = await Room.find({});
+        res.render("main", { rooms, title: "GIF 채팅방" });
+    } catch (error) {
+        console.error(error);
+        next(error);
+    }
+};
+
+exports.renderRoom = (req, res) => {
+    res.render("room", { title: "GIF 채팅방 생성" });
+};
+
+exports.createRoom = async (req, res, next) => {
+    try {
+        const newRoom = await Room.create({
+            title: req.body.title,
+            max: req.body.max,
+            owner: req.session.color,
+            password: req.body.password,
+        });
+
+        const io = req.app.get("io");
+        io.of("/room").emit("newRoom", newRoom);
+
+        if (req.body.password) {
+            res.redirect(`/room/${newRoom._id}?password=${req.body.password}`);
+        } else {
+            res.redirect(`/room/${newRoom._id}`);
+        }
+    } catch (error) {
+        console.error(error);
+        next(error);
+    }
+};
+
+exports.enterRoom = async (req, res, next) => {
+    try {
+        const room = await Room.findOne({ _id: req.params.id });
+        if (!room) {
+            return res.redirect(`/?error=존재하지 않는 방입니다.`);
+        }
+        if (room.password && room.password !== req.query.password) {
+            return res.redirect(`/?error=비밀번호가 일치하지 않습니다.`);
+        }
+
+        const io = req.app.get("io");
+        const { rooms } = io.of("/chat").adapter;
+        if (room.max <= rooms.get(req.params.id)?.size) {
+            return res.redirect(`/?error=허용 인원을 초과했습니다.`);
+        }
+
+        return res.render("chat", {
+            room,
+            title: room.title,
+            chats: [],
+            user: req.session.color,
+        });
+    } catch (error) {
+        console.error(error);
+        return next(error);
+    }
+};
+
+exports.removeRoom = async (req, res, next) => {
+    try {
+        await Room.deleteOne({ _id: req.params.id });
+        await Chat.deleteMany({ room: req.params.id });
+        
+        res.send("ok");
+    } catch (error) {
+        console.error(error);
+        next(error);
+    }
+};
+```
+
+컨트롤러에서는 MongoDB와 웹 소켓 모두에 접근할 수 있다.
+
+`createRoom` 컨트롤러는 채팅방 생성 컨트롤러이다. `app.set("io", io)`로 저장했던 `io` 객체를 `req.app.get("io")`로 가져온다. `io.of("/room").emit` 메소드는 /room 네임스페이스에 연결한 모든 클라이언트에게 데이터를 보내는 메소드이며, GET / 라우터에 접속한 모든 클라이언트가 새로 생성된 채팅방에 대한 데이터를 받을 수 있다.
+
+`enterRoom` 컨트롤러는 채팅방에 접속하고 화면을 렌더링하는 컨트롤러이다. 렌더링 하기 전 방의 존재성, 비밀번호 일치 여부, 허용 인원 초과 여부 등을 검증한다. `io.of("/chat").adapter.rooms`에 방 목록이 들어 있다. `io.of("/chat").adapter.rooms.get([방 아이디])`로 해당 방의 소켓 목록을 추출할 수 있고, 이 크기로 현재 참가 인원 수를 유도할 수 있다.
+
+`removeRoom` 컨트롤러는 채팅방 삭제 컨트롤러이다. 
+
+- - -
+
+## 12.5 미들웨어와 소켓 연결하기
+
+이 절에서는 채팅방 입장, 퇴장 시 채팅방의 다른 사용자들에게 입장, 퇴장 시스템 메시지가 전송되도록 할 것이다. 또한, 모든 사람이 방에서 나가면 방이 DB에서 삭제되는 기능도 구현한다.
+
+먼저 사용자의 이름을 채팅방에 표시하는 예제이다. 사용자의 이름은 세션에 포함되어 있어 `req.session.color`로 참조할 수 있다. `Socket.IO`에서 세션 객체에 접근하려면 추가 작업이 필요하다.
+
+`Socket.IO`도 미들웨어를 사용할 수 있으므로 `express-session`을 공유하면 된다. 이를 위해 먼저 **app.js**를 수정한다.
+
+**app.js**
+```
+...
+const sessionMiddleware = session({
+    resave: false,
+    saveUninitialized: false,
+    secret: process.env.COOKIE_SECRET,
+    cookie: {
+        httpOnly: true,
+        secure: false,
+    },
+});
+...
+app.use(cookieParser(process.env.COOKIE_SECRET));
+app.use(sessionMiddleware);
+...
+webSocket(server, app, sessionMiddleware);
+```
+
+**app.js**와 **socket.js** 간에 `express-session` 미들웨어를 공유하기 위해 변수르 분리하였다. **socket.js**도 수정한다.
+
+**socket.js**
+```
+const SocketIO = require("socket.io");
+const removeRoom = require("./services");
+
+module.exports = (server, app, sessionMiddleware) => {
+    const io = SocketIO(server, { path: "/socket.io" });
+    app.set("io", io);
+    const room = io.of("/room");
+    const chat = io.of("/chat");
+
+    const wrap = middleware => (socket, next) => middleware(socket.request, {}, next);
+    chat.use(wrap(sessionMiddleware));
+
+    room.on("connection", (socket) => {
+        console.log("room 네임스페이스 접속");
+
+        socket.on("disconnect", () => {
+            console.log("room 네임스페이스 접속 해제");
+        });
+    });
+
+    chat.on("connection", (socket) => {
+        console.log("chat 네임스페이스 접속");
+
+        socket.on("join", (data) => {
+            socket.join(data);
+            socket.to(data).emit("join", {
+                user: "system",
+                chat: `${socket.request.session.color}님이 입장하셨습니다.`,
+            });
+        });
+
+        socket.on("disconnect", async () => {
+            console.log("chat 네임스페이스 접속 해제");
+            const { referer } = socket.request.headers;     // 브라우저 주소가 포함된다
+            const roomId = new URL(referer).pathname.split("/").at(-1);
+            const currentRoom = chat.adapter.rooms.get(roomId);
+            const userCount = currentRoom?.size || 0;
+            
+            if (userCount === 0) {
+                await removeRoom(roomId);                   // 컨트롤러 대신 서비스를 사용한다
+                room.emit("removeRoom", roomId);
+                console.log("방 삭제 요청 성공");
+            } else {
+                socket.to(roomId).emit("exit", {
+                    user: "system",
+                    chat: `${socket.request.session.color}님이 퇴장하셨습니다.`,
+                });
+            }
+        });
+    });
+};
+```
+
+`chat.use` 메소드에 미들웨어를 장착할 수 있다. 이 미들웨어는 `chat` 네임스페이스에 웹 소켓이 연결될 때마다 실행된다. `wrap` 함수는 미들웨어에 익스프레스처럼 `req`, `res`, `next`를 제공해주는 함수이다. 이제 `socket.request`에 `session` 객체가 생성되어 `socket.request.session`으로 참조할 수 있다.
+
+`socket.to([방 아이디])` 메소드로 특정 방에 데이터를 보낼 수 있다. 세션 미들웨어와 `Socket.IO`를 연결했으므로 웹 소켓에서 세션(`socket.request.session`)을 사용할 수 있다.
+
+접속 해제 시에는 현재 방의 인원 수에 따라 동작이 달라지게 된다. `socket.request.headers.referer`에 브라우저 주소가 있고, `URL` 객체를 사용해 방 아이디를 추출할 수 있다. 방 아이디는 `pathname`의 마지막에 위치하고 있기 때문에 인덱싱 시 -1 값을 주어 가져온다. `socket.adapter.rooms.get([방 아이디])`에 참여 중인 소켓 정보가 들어 있고, 참여자 수는 `size` 속성으로 구할 수 있다. 참여자 수가 0명이면 방을 삭제하고, 그렇지 않으면 방에 남아 있는 참여자들에게 퇴장 메시지가 전송된다.
+
+여기서 주의할 점은 방을 제거할 때 사용하는 `removeRoom`이 컨트롤러가 아닌 서비스라는 점이다. 웹 소켓에는 `req`, `res`, `next`가 없기 때문에 컨트롤러 대신 서비스를 사용한 것이다. 여기서 미들웨어처럼 `req`는 `socket.request`, `res`는 `{}`, `next`는 `() => {}`로 대체하는 것은 부적절하다. `socket.request`에 `params.id([방 아이디])`가 들어 있지 않기 때문이다.
+
+현재 컨트롤러가 HTTP 요청에 적합하게 구성되어 있기 때문에 이러한 맥락에서는 서비스로 분리하여 그 과정을 추상화하는 것이 좋다.
+
+`removeRoom` 서비스는 다음과 같이 생성한다.
+
+**services/index.js**
+```
 
 ```
