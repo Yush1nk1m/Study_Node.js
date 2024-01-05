@@ -863,3 +863,459 @@ exports.createGood = async (req, res, next) => {
 - - -
 
 ## 13.2 서버센트 이벤트 사용하기
+
+온라인 경매와 같은 서비스에서는 모든 사람에게 같은 시간이 표시되고 적용되어야 한다. 하지만 클라이언트의 시간을 사용하는 것은 변조 가능성이 있기 때문에 서버 시간을 받아오는 것이 좋다.
+
+폴링이나 웹 소켓을 통해 서버 시간을 받아올 수도 있지만 이번 예제에서는 서버센트 이벤트를 사용해 서버 시간을 받아올 것이다. 주기적으로 서버 시간을 조회하는 데에는 양방향 통신이 필요하지 않기 때문이다.
+
+경매를 진행하는 동안 다른 사람이 참여하거나 입찰했을 때 이를 알리기 위해 웹 소켓을 사용할 것이다. 서버센트 이벤트와 웹 소켓은 같이 사용할 수 있다.
+
+먼저 패키지를 설치한다.
+
+**console**
+```
+Study_Node.js/Codes/chapter13/node-auction$ npm i sse socket.io
+```
+
+서버와 `sse`, `socket.io` 모듈을 연결한다.
+
+**app.js**
+```
+...
+
+const passportConfig = require("./passport");
+const sse = require("./sse");
+const webSocket = require("./socket");
+
+...
+
+const server = app.listen(app.get("port"), () => {
+    console.log(app.get("port"), "번 포트에서 대기 중");
+});
+
+webSocket(server, app);
+sse(server);
+```
+
+**sse.js**
+```
+const SSE = require("sse");
+
+module.exports = (server) => {
+    const sse = new SSE(server);
+    sse.on("connection", (client) => {      // 서버센트 이벤트 연결
+        setInterval(() => {
+            client.send(Date.now().toString());
+        }, 1000);
+    });
+};
+```
+
+`sse` 모듈을 불러와 `new SSE([익스프레스 서버])`로 서버 객체를 생성하면 된다. 생성한 객체에는 `connection` 이벤트에 대한 리스너를 등록하여 클라이언트와 연결할 때 어떤 동작을 수행할지 정의할 수 있으며, 매개변수로 `client` 객체를 사용할 수 있다. 클라이언트에 메시지를 보낼 때 이 객체를 사용한다. 라우터에서 SSE를 사용하고 싶으면 `app.set` 메소드로 `client` 객체를 등록하고, `req.app.get` 메소드로 가져오면 된다.
+
+이 예제에서는 `client.send` 메소드로 1초마다 접속한 클라이언트들에게 서버 시간 타임스탬프를 보내도록 하였다. 단, 이 메소드로는 문자열만 보낼 수 있으므로 숫자인 타임스탬프를 `toString` 메소드를 사용해 문자열로 변경했다.
+
+**socket.js**
+```
+const SocketIO = require("socket.io");
+
+module.exports = (server, app) => {
+    const io = SocketIO(server, { path: "/socket.io" });
+    app.set("io", io);
+    io.on("connection", (socket) => {       // 웹 소켓 연결 시
+        const req = socket.request;
+        const { headers: { referer } } = req;
+        const roomId = new URL(referer).pathname.split("/").at(-1);
+        socket.join(roomId);
+        socket.on("disconnect", () => {
+            socket.leave(roomId);
+        });
+    });
+};
+```
+
+Socket.IO와도 연결한다. 이번에는 사용자 정의 네임스페이스를 사용하지 않고 기본 네임스페이스(/)로 연결했다. 경매 화면에서 실시간으로 입찰 정보를 올리기 위해 웹 소켓을 사용한다. 클라이언트 연결 시 주소로부터 경매방 아이디를 받아와 `socket.join`으로 해당 방에 입장한다. 연결이 끊기면 `socket.leave`로 해당 방에서 나간다.
+
+서버센트 이벤트는 IE나 엣지 브라우저에서 사용할 수 없다는 단점이 있다. EventSource라는 객체를 지원하지 않기 때문이다. 그러나 사용자가 직접 이를 구현할 수 있다. IE나 엣지 브라우저를 위해 클라이언트 코드에 `EventSource` 폴리필(polyfill)을 포함하였다.
+
+**views/main.html**
+```
+...
+
+</div>
+<script src="https://unpkg.com/event-source-polyfill/src/eventsource.min.js"></script>
+<script>
+    const es = new EventSource("/sse");
+    es.onmessage = function (e) {
+        document.querySelectorAll(".time").forEach((td) => {
+            const end = new Date(td.dataset.start);     // 경매 시작 시간
+            const server = new Date(parseInt(e.data, 10));
+            end.setDate(end.getDate() + 1);             // 경매 종료 시간
+            if (server >= end) {                        // 경매가 종료되었으면
+                td.textContent = "00:00:00";
+            } else {
+                const t = end - server;                 // 경매 종료까지 남은 시간
+                const seconds = ("0" + Math.floor((t / 1000) % 60)).slice(-2);
+                const minutes = ("0" + Math.floor((t / 1000 / 60) % 60)).slice(-2);
+                const hours = ("0" + Math.floor((t / (1000 * 60 * 60)) % 24)).slice(-2);
+                td.textContent = hours + ":" + minutes + ":" + seconds;
+            }
+        });
+    };
+</script>
+```
+
+첫 번째 스크립트가 `EventSource` 폴리필이다. 이것을 포함하면 IE와 엣지 브라우저에서도 서버센트 이벤트를 사용할 수 있다. 두 번째 스크립트는 `EventSource`를 사용해 서버센트 이벤트를 받는 코드이다. `new EventSource("/sse")`로 서버와 연결하고, `es.onmessage` 또는 `es.addEventListener("message")` 이벤트 리스너로 서버로부터 데이터를 받을 수 있다. 서버로부터 받은 데이터는 `e.data`에 들어 있다. 나머지 부분은 서버 시간과 경매 종료 시간을 계산해 카운트다운하는 코드이다.
+
+이제 경매 진행 페이지를 작성한다. 이 페이지는 서버센트 이벤트 및 웹 소켓 모두에 연결한다.
+
+**views/auction.html**
+```
+{% extends "layout.html" %}
+
+{% block good %}
+<h2> {{good.name}}</h2>
+<div>등록자: {{good.Owner.nick}}</div>
+<div>시작자: {{good.price}}원</div>
+<strong id="time" data-start="{{good.createdAt}}"></strong>
+<img id="good-img" src="/img/{{good.img}}">
+{% endblock %}
+
+{% block content %}
+<div class="timeline">
+    <div id="bid">
+        {% for bid in auction %}
+        <div>
+            <span>{{bid.User.nick}}님: </span>
+            <strong>{{bid.bid}}원에 입찰하셨습니다.</strong>
+            {% if bid.msg %}
+            <span>{{bid.msg}}</span>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    <form id="bid-form">
+        <input type="submit" name="bid" placeholder="입찰가" required min="{{good.price}}">
+        <input type="msg" name="msg" placeholder="메시지(선택)" maxlength="100">
+        <button class="btn" type="submit">입찰</button>
+    </form>
+</div>
+<script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+<script src="https://unpkg.com/event-source-polyfill/src/eventsource.min.js"></script>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+    document.querySelector("#bid-form").addEventListener("submit", (e) => {
+        e.preventDefault();
+        axios.post("/good/{{good.id}}/bid", {       // 입찰 진행
+            bid: e.target.bid.value,
+            msg: e.target.msg.value,
+        }).catch((err) => {
+            console.error(err);
+            alert(err.response.data);
+        }).finally(() => {
+            e.target.bid.value = '';
+            e.target.msg.value = '';
+        });
+    });
+    
+    const es = new EventSource("/sse");
+    const time = document.querySelector("#time");
+    es.onmessage = (e) => {
+        const end = new Date(time.dataset.start);       // 경매 시작 시간
+        end.setDate(end.getDate() + 1);
+        const server = new Date(parseInt(e.data, 10));
+
+        if (server >= end) {
+            time.textContent = "00:00:00";
+        } else {
+            const t = end - start;
+            const seconds = ("0" + Math.floor((t / 1000) % 60)).slice(-2);
+            const minutes = ("0" + Math.floor((t / 1000 / 60) % 60)).slice(-2);
+            const hours = ("0" + Math.floor((t / (1000 * 60 * 60)) % 24)).slice(-2);
+            time.textContent = hours + ":" + minutes + ":" + seconds;
+        }
+    };
+
+    const socket = io.connect("http://localhost:8010", {
+        path: "/socket.io",
+    });
+    socket.on("bid", (data) => {        // 누군가 입찰했을 때
+        const div = document.createElement("div");
+        let span = document.createElement("span");
+        span.textContent = data.nick + "님: ";
+        const strong = document.createElement("strong");
+        strong.textContent = data.bid + "원에 입찰하셨습니다.";
+        div.appendChild(span);
+        div.appendChild(strong);
+        if (data.msg) {
+            span = document.createElement("span");
+            span.textContent = `(${data.msg})`;
+            div.appendChild(span);
+        }
+        document.querySelector("#bid").appendChild(div);
+    });
+</script>
+<script>
+    window.onload = () => {
+        if (new URL(location.href).searchParams.get("auctionError")) {
+            alert(new URL(location.href).searchParams.get("auctionError"));
+        }
+    };
+</script>
+{% endblock %}
+```
+
+이제 라우터와 컨트롤러에 **GET /good/:id**와 **/good/:id/bid**를 추가한다.
+
+**routes/index.js**
+```
+const express = require("express");
+const multer = require("multer");
+const path = require("path");
+const fs = require("fs");
+
+const { isLoggedIn, inNotLoggedIn, isNotLoggedIn } = require("../middlewares");
+const {
+    renderMain, renderJoin, renderGood, createGood, renderAuction, bid,
+} = require("../controllers");
+
+const router = express.Router();
+
+router.use((req, res, next) => {
+    res.locals.user = req.user;
+    next();
+});
+
+router.get("/", renderMain);
+
+router.get("/join", isNotLoggedIn, renderJoin);
+
+router.get("/good", isLoggedIn, renderGood);
+
+try {
+    fs.readdirSync("uploads");
+} catch (error) {
+    console.error("uploads 디렉터리가 존재하지 않아 생성합니다.");
+    fs.mkdirSync("uploads");
+}
+
+const upload = multer({
+    storage: multer.diskStorage({
+        destination(req, file, cb) {
+            cb(null, "uploads/");
+        },
+
+        filename(req, file, cb) {
+            const ext = path.extname(file.originalname);
+            cb(null, path.basename(file.originalname, ext) + new Date().valueOf() + ext);
+        },
+    }),
+
+    limits: { fileSize: 5 * 1024 * 1024 },
+});
+
+router.post("/good", isLoggedIn, upload.single("img"), createGood);
+
+router.get("/good/:id", isLoggedIn, renderAuction);
+
+router.post("/good/:id/bid", isLoggedIn, bid);
+
+module.exports = router;
+```
+
+**controllers/index.js**
+```
+const { Op } = require("sequelize");
+const { Good, Auction, User } = require("../models");
+
+exports.renderMain = async (req, res, next) => {
+    try {
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);     // 어제 시간
+        const goods = await Good.findAll({
+            where: { SoldId: null, createdAt: { [Op.gte]: yesterday } },
+        });
+
+        res.render("main", {
+            title: "NodeAuction",
+            goods,
+        });
+    } catch (error) {
+        console.error(error);
+        next(error);
+    }
+};
+
+exports.renderJoin = (req, res) => {
+    res.render("join", {
+        title: "회원 가입 - NodeAuction",
+    });
+};
+
+exports.renderGood = (req, res) => {
+    res.render("good", {
+        title: "상품 등록 - NodeAuction",
+    });
+};
+
+exports.createGood = async (req, res, next) => {
+    try {
+        const { name, price } = req.body;
+        await Good.create({
+            OwnerId: req.user.id,
+            name,
+            img: req.file.filename,
+            price,
+        });
+        res.redirect("/");
+    } catch (error) {
+        console.error(error);
+        next(error);
+    }
+};
+
+exports.renderAuction = async (req, res, next) => {
+    try {
+        const [good, auction] = await Promise.all([
+            Good.findOne({
+                where: { id: req.params.id },
+                include: {
+                    model: User,
+                    as: "Owner",
+                },
+            }),
+
+            Auction.findAll({
+                where: { GoodId: req.params.id },
+                include: { model: User },
+                order: [["bid", "ASC"]],
+            }),
+        ]);
+
+        res.render("auction", {
+            title: `${good.name} - NodeAuction`,
+            good,
+            auction,
+        });
+    } catch (error) {
+        console.error(error);
+        next(error);
+    }
+};
+
+exports.bid = async (req, res, next) => {
+    try {
+        const { bid, msg } = req.body;
+        const good = await Good.findOne({
+            where: { id: req.params.id },
+            include: { model: Auction },
+            order: [[{ model: Auction }, "bid", "DESC"]],
+        });
+        if (!good) {
+            return res.status(404).send("해당 상품은 존재하지 않습니다.");
+        }
+        if (good.price >= bid) {
+            return res.status(403).send("시작 가격보다 높게 입찰해야 합니다.");
+        }
+        if (new Date(good.createdAt).valueOf() + (24 * 60 * 60 * 1000) < new Date()) {
+            return res.status(403).send("경매가 이미 종료되었습니다.");
+        }
+        if (good.Auctions[9]?.bid >= bid) {
+            return res.status(403).send("이전 입찰가보다 높아야 합니다.");
+        }
+        const result = await Auction.create({
+            bid,
+            msg,
+            UserId: req.user.id,
+            GoodId: req.params.id,
+        });
+        // 실시간으로 입찰 내역 전송
+        req.app.get("io").to(req.params.id).emit("bid", {
+            bid: result.bid,
+            msg: result.msg,
+            nick: req.user.nick,
+        });
+        return res.send("ok");
+    } catch (error) {
+        console.error(error);
+        return next(error);
+    }
+}
+```
+
+**GET /good/:id** 라우터와 연결된 `renderAuction` 컨트롤러는 해당 상품과 기존 입찰 정보들을 불러온 뒤 렌더링한다. 상품(`Good`) 모델에 사용자(`User`) 모델을 `include` 할 때 `as` 속성을 사용한 것에 주의한다. `Good`, `User` 모델은 현재 일대다 관계가 두 번 연결(`Owner`, `Sold`)되어 있으므로 이런 경우에는 어떤 관계를 `include`할지 `as` 속성으로 밝혀야 한다.
+
+**POST /good/:id/bid**와 연결된 `bid` 컨트롤러는 클라이언트로부터 받은 입찰 정보를 저장한다. 시작 가격보다 낮게 입찰했거나, 경매 종료 시간이 지났거나, 이전 입찰가보다 낮은 입찰가가 들어왔다면 반려한다. 정상적인 입찰가가 들어왔다면 저장한 후 해당 경매방의 모든 사람에게 입찰자, 입찰 가격, 입찰 메시지 등을 웹 소켓으로 전달한다. `Good.findOne` 메소드의 `order` 속성으로 `Auction` 모델의 `bid` 컬럼을 내림차순으로 정렬하고 있다.
+
+- - -
+
+## 13.3 스케줄링 구현하기
+
+카운트다운이 끝나면 경매를 진행할 수는 없지만 경매 종료 시 낙찰하를 정하는 시스템을 구현해야 한다. 이럴 때 `node-schedule` 모듈을 사용한다.
+
+**console**
+```
+Study_Node.js/Codes/chapter13/node-auction/views$ npm i node-schedule
+```
+
+**controllers/index.js**
+```
+const { Op } = require("sequelize");
+const { Good, Auction, User, sequelize } = require("../models");
+const schedule = require("node-schedule");
+
+...
+
+exports.createGood = async (req, res, next) => {
+    try {
+        const { name, price } = req.body;
+        const good = await Good.create({
+            OwnerId: req.user.id,
+            name,
+            img: req.file.filename,
+            price,
+        });
+        const end = new Date();
+        end.setDate(end.getDate() + 1);
+
+        const job = schedule.scheduleJob(end, async () => {
+            const success = await Auction.findOne({
+                where: { GoodId: good.id },
+                order: [["bid", "DESC"]],
+            });
+            await good.setSold(success.UserId);
+            await User.update({
+                money: sequelize.literal(`money - ${success.bid}`),
+            }, {
+                where: { id: success.UserId },
+            });
+        });
+        job.on("error", (err) => {
+            console.error("스케줄링 에러 발생", err);
+        });
+        job.on("success", () => {
+            console.log("스케줄링 성공");
+        });
+
+        res.redirect("/");
+    } catch (error) {
+        console.error(error);
+        next(error);
+    }
+};
+
+...
+```
+
+`schedule` 객체의 `scheduleJob` 메소드로 일정을 예약할 수 있다. 첫 번째 인수로는 실행될 시각을 전달하고, 두 번째 인수로는 해당 시각이 되었을 때 수행할 콜백 함수를 전달한다. 경매 모델에서 가장 높은 가격으로 입찰한 사람을 찾아 상품 모델의 낙찰자 아이디에 전달해주도록 정의했다. 이때 낙찰자의 보유 자산을 낙찰 금액만큼 뺀다.
+
+`scheduleJob` 메소드는 `job` 객체를 반환한다. `job` 객체는 이벤트 이미터라서 `on` 메소드를 통해 이벤트를 수신할 수 있다. 많이 쓰이는 이벤트로는 에러가 발생할 때 발생하는 `error` 이벤트와 스케줄링이 성공한 후 발생하는 `success` 이벤트가 있다. 이외에도 스케줄링이 취소될 때 발생하는 `canceled` 이벤트, 스케줄링이 실행되는 시점에 발생하는 `run` 이벤트 등이 있다.
+
+`node-schedule` 패키지의 단점은 스케줄링이 노드 기반으로 작동하므로 노드가 종료되면 예약도 같이 종료된다는 점이다. 노드를 계속 켜두면 되지만, 서버가 어떤 에러로 종료될지 예측하기는 알기 어렵다. 따라서 이를 보완하기 위한 방법이 필요하다.
+
+서버가 시작될 때 경매 시작 후 24시간이 지났지만 낙찰자가 없는 경매를 찾아서 낙찰자를 지정하는 코드를 추가한다. 또한, 24시간이 지나지 않아 경매가 진행 중이던 건들에 대해 다시 스케줄링을 등록한다.
+
+**checkAuction.js**
+```
+
+```
