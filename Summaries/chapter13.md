@@ -1317,5 +1317,185 @@ exports.createGood = async (req, res, next) => {
 
 **checkAuction.js**
 ```
+const { scheduleJob } = require("node-schedule");
+const { Op } = require("Sequelize");
+const { Good, Auction, User, sequelize } = require("./models");
 
+module.exports = async () => {
+    console.log("checkAuction");
+    try {
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);     // 어제 시간
+        const targets = await Good.findAll({            // 24시간이 지난 낙찰자 없는 경매들
+            where: {
+                SoldId: null,
+                createdAt: { [Op.lte]: yesterday },
+            },
+        });
+        targets.forEach(async (good) => {
+            const success = await Auction.findOne({
+                where: { GoodId: good.id },
+                order: [["bid", "DESC"]],
+            });
+            await good.setSold(success.UserId);
+            await User.update({
+                money: sequelize.literal(`money - ${success.bid}`),
+            }, {
+                where: { id: success.UserId },
+            });
+        });
+        
+        const ongoing = await Good.findAll({            // 24시간이 지나지 않은 낙찰자 없는 경매들
+            where: {
+                SoldId: null,
+                createdAt: { [Op.gte]: yesterday },
+            },
+        });
+        ongoing.forEach((good) => {
+            const end = new Date(good.createdAt);
+            end.setDate(end.getDate() + 1);             // 생성일 24시간 뒤가 낙찰 시간
+            const job = scheduleJob(end, async () => {
+                const success = await Auction.findOne({
+                    where: { GoodId: good.id },
+                    order: [["bid", "DESC"]],
+                });
+                await good.setSold(success.UserId);
+                await User.update({
+                    money: sequelize.literal(`money - ${success.bid}`),
+                }, {
+                    where: { id: success.UserId },
+                });
+            });
+            job.on("error", (error) => {
+                console.error("스케줄링 에러 발생", error);
+            });
+            job.on("success", () => {
+                console.log("스케줄링 성공");
+            });
+        });
+    } catch (error) {
+        console.error(error);
+    }
+};
 ```
+
+먼저 낙찰자가 없으면서 생성된 지 24시간이 지난 경매를 찾아 낙찰자를 정하는 코드가 있다. 주의할 점은 `success`의 값이 `undefined`인 경우 에러가 발생한다는 것이다. 아무도 낙찰하지 않으면 `undefined`로 설정되므로 이에 대한 처리는 추후 직접 코드를 작성하여 구현해 본다.
+
+낙찰자가 없으면서 생성된 지 24시간이 지나지 않은 경매들은 다시 스케줄링을 등록한다. 경매 생성일에 24시간을 더한 시간이 종료 시간이 된다. 이 경우에도 역시 `success`가 `undefined`인 경우에 대처해야 한다.
+
+이제 `checkAuction`을 서버에 연결한다.
+
+**app.js**
+```
+...
+
+const webSocket = require("./socket");
+const checkAuction = require("./checkAuction");
+
+const app = express();
+passportConfig();
+checkAuction();
+
+...
+```
+
+이제 서버가 시작될 때마다 낙찰자를 지정하는 작업을 수행한다. `checkAuction` 코드는 **app.js**에 직접 작성해도 되지만 코드가 길어지므로 분리한 것이다. 서버가 중간이 꺼진 경우에도 다시 실행 시 **checkAuction.js**에 의해 다시 스케줄링이 된다.
+
+- - -
+
+## 13.4 프로젝트 마무리하기
+
+마지막으로 낙찰자가 낙찰 내역을 볼 수 있도록 한다. 낙찰 내역을 표시하는 라우터와 컨트롤러를 추가한다.
+
+**routes/index.js**
+```
+...
+
+const { isLoggedIn, inNotLoggedIn, isNotLoggedIn } = require("../middlewares");
+const {
+    renderMain, renderJoin, renderGood, createGood, renderAuction, bid, renderList,
+} = require("../controllers");
+
+...
+
+router.get("/list", isLoggedIn, renderList);
+
+module.exports = router;
+```
+
+**controllers/index.js**
+```
+exports.renderList = async (req, res, next) => {
+    try {
+        const goods = await Good.findAll({
+            where: { SoldId: req.user.id },
+            include: { model: Auction },
+            order: [[{ model: Auction }, "bid", "DESC"]],
+        });
+        res.render("list", { title: "낙찰 목록 - NodeAuction", goods });
+    } catch (error) {
+        console.error(error);
+        next(error);
+    }
+};
+```
+
+낙찰된 상품과 그 상품의 입찰 내역을 조회한 후 렌더링한다. 입찰 내역은 내림차순으로 정렬해 낙찰자의 내역이 맨 위에 오도록 하였다.
+
+**views/list.html**
+```
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="timeline">
+    <h2>경매 낙찰 목록</h2>
+    <table id="good-list">
+        <tr>
+            <th>상품명</th>
+            <th>사진</th>
+            <th>낙찰가</th>
+        </tr>
+        {% for good in goods %}
+        <tr>
+            <td>{{good.name}}</td>
+            <td>
+                <img src="/img/{{good.img}}">
+            </td>
+            <td>{{good.Auctions[0].bid}}</td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+{% endblock %}
+```
+
+**views/layout.html**
+```
+...
+
+<a href="/good" id="register" class="btn">상품 등록</a>
+<a href="/list" id="list" class="btn">낙찰 내역</a>
+
+...
+```
+
+낙찰 목록으로 이동할 수 있는 버튼을 추가하였다.
+
+### 13.4.1 스스로 해보기
+
+- 상품 등록자는 참여할 수 없게 만들기(라우터에서 검사)
+- 경매 시간을 자유롭게 조정할 수 있도록 만들기(상품 등록 시 생성할 수 있게 화면과 DB 수정)
+- 노드 서버가 꺼졌다 다시 켜졌을 때 스케줄러 다시 생성하기(`checkAuction`에서 DB 조회 후 스케줄러 설정)
+- 아무도 입찰하지 않아 낙찰자가 없을 때를 대비한 처리 로직 구현하기(`checkAuction`과 스케줄러 수정)
+
+### 13.4.2 핵심 정리
+
+- 서버에서 클라이언트로 보내는 일방향 통신은 웹 소켓 대신 서버센트 이벤트를 사용해도 된다.
+- 기존 입찰 내역은 데이터베이스에서 불러오고, 방 참여 후에 추가되는 내역은 웹 소켓에서 불러온다. 이 둘을 매끄럽게 연결하는 방법을 기억해 둔다.
+- 코드가 길어질 것 같으면 **app.js**로부터 **socket.js**와 **checkAuction.js**를 분리한 것과 같이 분리한다.
+- 사용자의 입력값은 프론트엔드와 백엔드 모두에서 체크하는 게 좋다.
+- 스케줄링을 통해 주기적으로 일어나는 작업을 처리할 수 있지만, 노드 서버가 계속 켜져 있어야만 하므로 노드 서버가 꺼졌을 때 대처할 방법을 마련해야 한다.
+
+### 13.4.3 함께 보면 좋은 자료
+
+생략
